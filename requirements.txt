@@ -1,0 +1,8 @@
+Flask>=3.0
+pyodbc>=5.0
+openpyxl>=3.1
+holidays>=0.50
+cryptography>=41.0
+APScheduler>=3.10
+matplotlib>=3.7
+tzdata>=2024.1

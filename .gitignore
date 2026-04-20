@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs / temp
+logs/
+*.log
+*.tmp
+
+# Credenziali e chiavi (NON committare)
+*.enc
+*.key
+
+# Config locale
+config.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Zip di deploy
+*.zip

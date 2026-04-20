@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Production Value Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body data-refresh-minutes="{{ refresh_minutes }}">
+    <div id="dashboard">
+        <header id="header">
+            <div id="kpis">
+                <div class="kpi">
+                    <span class="kpi-label">Target Giornaliero</span>
+                    <span class="kpi-value" id="kpi-daily-target">&mdash;</span>
+                </div>
+                <div class="kpi">
+                    <span class="kpi-label">Target Mensile</span>
+                    <span class="kpi-value" id="kpi-monthly-target">&mdash;</span>
+                </div>
+                <div class="kpi">
+                    <span class="kpi-label">Valore Prodotto Oggi</span>
+                    <span class="kpi-value" id="kpi-today-value">&mdash;</span>
+                </div>
+                <div class="kpi">
+                    <span class="kpi-label">Valore Prodotto Mese</span>
+                    <span class="kpi-value" id="kpi-month-value">&mdash;</span>
+                </div>
+                <div class="kpi">
+                    <span class="kpi-label">Gap Giornaliero</span>
+                    <span class="kpi-value" id="kpi-daily-gap">&mdash;</span>
+                </div>
+                <div class="kpi">
+                    <span class="kpi-label">Gap Mensile</span>
+                    <span class="kpi-value" id="kpi-monthly-gap">&mdash;</span>
+                </div>
+                <div class="kpi">
+                    <span class="kpi-label">Previsione Fine Giorno</span>
+                    <span class="kpi-value" id="kpi-forecast-day">&mdash;</span>
+                </div>
+                <div class="kpi">
+                    <span class="kpi-label">Previsione Fine Mese</span>
+                    <span class="kpi-value" id="kpi-forecast-month">&mdash;</span>
+                </div>
+                <div class="kpi">
+                    <span class="kpi-label">Aggiustamento Richiesto / Giorno</span>
+                    <span class="kpi-value" id="kpi-required">&mdash;</span>
+                </div>
+            </div>
+            <div id="header-right">
+                <div id="warning-star" class="hidden" title="Alcuni ordini mancano dal file Excel">&#11088;</div>
+                <div id="clock">
+                    <div id="clock-time">--:--:--</div>
+                    <div id="clock-date">--/--/----</div>
+                </div>
+                <div id="refresh-info">
+                    <div class="refresh-label">Prossimo refresh</div>
+                    <div class="refresh-countdown"><span id="countdown">--</span> min</div>
+                    <div class="header-buttons">
+                        <button id="refresh-btn" type="button">Refresh</button>
+                        <button id="export-btn" type="button" title="Scarica report Excel del mese corrente">Export Excel</button>
+                    </div>
+                </div>
+                <img id="logo" src="/logo.png" alt="Logo">
+            </div>
+        </header>
+
+        <main id="chart-container">
+            <canvas id="chart"></canvas>
+        </main>
+
+        <footer id="legend">
+            <div class="legend-item">
+                <span class="legend-color" style="background:#4fc3f7"></span>
+                Target (lineare sul giorno lavorativo)
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background:#ffb74d"></span>
+                Media (giorni lavorativi)
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background:#81c784"></span>
+                Rolling Mese (cumulato reale con carry-forward dei giorni non lavorativi)
+            </div>
+            <div class="legend-item legend-warning">
+                <span class="star-icon">&#11088;</span>
+                Stella gialla: alcuni ordini prodotti oggi non sono presenti nel file Excel D365 &mdash; il valore mostrato potrebbe essere sottostimato.
+            </div>
+            <div class="legend-item legend-meta">
+                <span id="source-info"></span>
+            </div>
+        </footer>
+    </div>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
