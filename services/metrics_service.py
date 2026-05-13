@@ -18,11 +18,11 @@ class MetricsService:
         giorno lavorativo successivo.
     """
 
-    def __init__(self, excel_service, sql_service, calendar_service, daily_target: float):
+    def __init__(self, excel_service, sql_service, calendar_service, target_service):
         self.excel = excel_service
         self.sql = sql_service
         self.cal = calendar_service
-        self.daily_target = float(daily_target)
+        self.targets = target_service
 
     @staticmethod
     def current_production_date(now: datetime) -> date:
@@ -88,6 +88,11 @@ class MetricsService:
             qty_per_cal_day[production_day] = qty_per_cal_day.get(production_day, 0) + qty
 
         working_days = self.cal.working_days_in_month(year, month)
+        target_per_wd = self.targets.get_targets_for_month(year, month)
+        daily_target_today = target_per_wd.get(
+            prod_day,
+            self.targets.get_target_for_day(prod_day),
+        )
         working_days_set = set(working_days)
         cf_map = self.cal.carry_forward_map(year, month)
 
@@ -118,9 +123,13 @@ class MetricsService:
             else:
                 rolling.append(None)
 
-        # Target line cumulativo (lineare)
-        target_line = [round(self.daily_target * (i + 1), 2) for i in range(len(working_days))]
-        monthly_target = round(self.daily_target * len(working_days), 2)
+        # Target line cumulativo: somma dei target pianificati (o fallback) per i giorni lavorativi
+        target_line: List[float] = []
+        cum_target = 0.0
+        for wd in working_days:
+            cum_target += target_per_wd[wd]
+            target_line.append(round(cum_target, 2))
+        monthly_target = round(sum(target_per_wd.values()), 2)
 
         # Totali
         # today_value: valore attribuito al giorno produttivo corrente, coerente
@@ -148,7 +157,7 @@ class MetricsService:
         average_line = [round(avg_daily * (i + 1), 2) for i in range(len(working_days))]
 
         # Gap
-        daily_gap = self.daily_target - today_value
+        daily_gap = daily_target_today - today_value
         monthly_gap = monthly_target - month_value
 
         # Forecast fine giornata sulla base dei minuti trascorsi nella finestra produttiva
@@ -193,11 +202,11 @@ class MetricsService:
             else:
                 rolling_daily.append(None)
                 qty_daily.append(None)
-        target_daily = [round(self.daily_target, 2)] * len(working_days)
+        target_daily = [round(target_per_wd[wd], 2) for wd in working_days]
         average_daily = [round(avg_daily, 2)] * len(working_days)
 
         return {
-            'dailyTarget': round(self.daily_target, 2),
+            'dailyTarget': round(daily_target_today, 2),
             'monthlyTarget': monthly_target,
             'todayValue': round(today_value, 2),
             'monthValue': round(month_value, 2),

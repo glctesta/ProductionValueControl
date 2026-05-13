@@ -18,6 +18,7 @@ from services.export_service import ExportService
 from services.metrics_service import MetricsService
 from services.report_service import ReportService
 from services.sql_service import SqlService
+from services.target_service import TargetService
 
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / 'config.json'
@@ -52,7 +53,12 @@ sql_svc = SqlService(
     production_start=config.get('productionDayStart', '07:30'),
 )
 cal_svc = CalendarService(country=config.get('country', 'RO'))
-metrics_svc = MetricsService(excel_svc, sql_svc, cal_svc, daily_target=config['dailyValue'])
+target_svc = TargetService(
+    db_connection=db,
+    calendar_service=cal_svc,
+    fallback_daily_value=config['dailyValue'],
+)
+metrics_svc = MetricsService(excel_svc, sql_svc, cal_svc, target_service=target_svc)
 export_svc = ExportService(excel_svc, sql_svc, metrics_svc)
 email_svc = EmailService(BASE_DIR)
 report_svc = ReportService()
