@@ -541,6 +541,70 @@ def api_targets_get():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/targets', methods=['POST'])
+def api_targets_post():
+    """
+    Upsert batch di target. Body JSON:
+      { "year": 2026, "month": 5,
+        "rows": [{"planDate": "2026-05-04", "dailyValue": 55000, "notes": "..."}] }
+    """
+    from flask import request
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        year = int(payload.get('year', 0))
+        month = int(payload.get('month', 0))
+        rows = payload.get('rows', [])
+
+        if not (2020 <= year <= 2100) or not (1 <= month <= 12):
+            return jsonify({'error': 'year/month fuori range'}), 400
+        if not isinstance(rows, list):
+            return jsonify({'error': 'rows deve essere una lista'}), 400
+
+        working_days = set(cal_svc.working_days_in_month(year, month))
+        cleaned = []
+        for r in rows:
+            try:
+                d = date.fromisoformat(str(r['planDate']))
+            except (KeyError, ValueError, TypeError):
+                return jsonify({'error': f"planDate non valido: {r}"}), 400
+            if d.year != year or d.month != month:
+                return jsonify({'error': f"planDate {d} fuori dal mese richiesto"}), 400
+            if d not in working_days:
+                return jsonify({'error': f"planDate {d} non e' un giorno lavorativo"}), 400
+            try:
+                value = float(r['dailyValue'])
+            except (KeyError, ValueError, TypeError):
+                return jsonify({'error': f"dailyValue non valido per {d}"}), 400
+            if not (0 < value <= 1_000_000):
+                return jsonify({'error': f"dailyValue {value} fuori range (0, 1.000.000]"}), 400
+            notes = r.get('notes')
+            if notes is not None:
+                notes = str(notes)[:255]
+            cleaned.append({'planDate': d, 'dailyValue': value, 'notes': notes})
+
+        affected = target_svc.upsert_targets(cleaned)
+        return jsonify({'ok': True, 'affected': affected})
+    except Exception as e:
+        logger.exception("Errore POST /api/targets")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/targets/<date_iso>', methods=['DELETE'])
+def api_targets_delete(date_iso: str):
+    """Rimuove la pianificazione di un singolo giorno."""
+    try:
+        d = date.fromisoformat(date_iso)
+    except ValueError:
+        return jsonify({'error': 'date non valida (atteso YYYY-MM-DD)'}), 400
+
+    try:
+        removed = target_svc.delete_target(d)
+        return jsonify({'ok': True, 'removed': removed})
+    except Exception as e:
+        logger.exception(f"Errore DELETE /api/targets/{date_iso}")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # werkzeug reloader tenuto spento per evitare doppia inizializzazione della cache
     app.run(host='0.0.0.0', port=5065, debug=False, use_reloader=False)
