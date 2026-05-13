@@ -496,6 +496,51 @@ def healthz():
     return jsonify({'ok': True, 'now': datetime.now().isoformat(timespec='seconds')})
 
 
+@app.route('/api/targets')
+def api_targets_get():
+    """
+    Ritorna i target pianificati per il mese richiesto + fallback.
+    Query params: ?year=YYYY&month=MM (default: mese corrente).
+    """
+    from flask import request
+    try:
+        now = datetime.now()
+        year = int(request.args.get('year', now.year))
+        month = int(request.args.get('month', now.month))
+        if not (2020 <= year <= 2100) or not (1 <= month <= 12):
+            return jsonify({'error': 'year/month fuori range'}), 400
+
+        working_days = cal_svc.working_days_in_month(year, month)
+        raw = target_svc.get_raw_targets_for_month(year, month)
+
+        targets_out = {}
+        for wd in working_days:
+            iso = wd.isoformat()
+            if wd in raw:
+                targets_out[iso] = {
+                    'value': raw[wd]['value'],
+                    'notes': raw[wd].get('notes'),
+                    'planned': True,
+                }
+            else:
+                targets_out[iso] = {
+                    'value': config['dailyValue'],
+                    'notes': None,
+                    'planned': False,
+                }
+
+        return jsonify({
+            'year': year,
+            'month': month,
+            'workingDays': [wd.isoformat() for wd in working_days],
+            'targets': targets_out,
+            'fallback': config['dailyValue'],
+        })
+    except Exception as e:
+        logger.exception("Errore GET /api/targets")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # werkzeug reloader tenuto spento per evitare doppia inizializzazione della cache
     app.run(host='0.0.0.0', port=5065, debug=False, use_reloader=False)
