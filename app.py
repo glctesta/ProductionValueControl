@@ -626,6 +626,11 @@ def api_targets_copy_previous_month():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/admin/targets')
+def admin_targets():
+    return render_template('admin_targets.html')
+
+
 if __name__ == '__main__':
     # werkzeug reloader tenuto spento per evitare doppia inizializzazione della cache
     app.run(host='0.0.0.0', port=5065, debug=False, use_reloader=False)
