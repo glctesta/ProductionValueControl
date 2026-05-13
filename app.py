@@ -605,6 +605,27 @@ def api_targets_delete(date_iso: str):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/targets/copy-previous-month', methods=['POST'])
+def api_targets_copy_previous_month():
+    """
+    Copia la pianificazione del mese precedente sui giorni lavorativi del mese target.
+    Body JSON: { "year": 2026, "month": 6 }
+    """
+    from flask import request
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        year = int(payload.get('year', 0))
+        month = int(payload.get('month', 0))
+        if not (2020 <= year <= 2100) or not (1 <= month <= 12):
+            return jsonify({'error': 'year/month fuori range'}), 400
+
+        copied = target_svc.copy_from_previous_month(year, month)
+        return jsonify({'ok': True, 'copied': copied})
+    except Exception as e:
+        logger.exception("Errore POST /api/targets/copy-previous-month")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # werkzeug reloader tenuto spento per evitare doppia inizializzazione della cache
     app.run(host='0.0.0.0', port=5065, debug=False, use_reloader=False)
