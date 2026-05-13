@@ -582,8 +582,9 @@ def api_targets_post():
                 notes = str(notes)[:255]
             cleaned.append({'planDate': d, 'dailyValue': value, 'notes': notes})
 
-        affected = target_svc.upsert_targets(cleaned)
-        return jsonify({'ok': True, 'affected': affected})
+        result = target_svc.upsert_targets(cleaned)
+        failed_iso = [d.isoformat() for d in result['failed']]
+        return jsonify({'ok': True, 'affected': result['affected'], 'failed': failed_iso})
     except Exception as e:
         logger.exception("Errore POST /api/targets")
         return jsonify({'error': str(e)}), 500

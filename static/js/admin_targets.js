@@ -204,6 +204,8 @@
 
         try {
             let affected = 0, removed = 0;
+            let upsertFailed = [];
+            let deleteFailures = 0;
             if (rowsToUpsert.length) {
                 const res = await fetch('/api/targets', {
                     method: 'POST',
@@ -213,13 +215,28 @@
                 const data = await res.json();
                 if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
                 affected = data.affected;
+                upsertFailed = Array.isArray(data.failed) ? data.failed : [];
             }
             for (const iso of isosToDelete) {
-                const res = await fetch('/api/targets/' + iso, { method: 'DELETE' });
-                const data = await res.json();
-                if (res.ok && data.ok && data.removed) removed++;
+                try {
+                    const res = await fetch('/api/targets/' + iso, { method: 'DELETE' });
+                    const data = await res.json();
+                    if (res.ok && data.ok && data.removed) removed++;
+                    else if (!res.ok) deleteFailures++;
+                } catch (_e) {
+                    deleteFailures++;
+                }
             }
-            showToast(`Salvataggio OK: ${affected} aggiornati, ${removed} rimossi.`, 'success');
+            const hasIssues = upsertFailed.length > 0 || deleteFailures > 0;
+            const baseMsg = `Salvataggio: ${affected} aggiornati, ${removed} rimossi.`;
+            if (hasIssues) {
+                const parts = [baseMsg];
+                if (upsertFailed.length) parts.push(`Non scritti: ${upsertFailed.join(', ')}.`);
+                if (deleteFailures) parts.push(`Delete falliti: ${deleteFailures}.`);
+                showToast(parts.join(' '), 'error');
+            } else {
+                showToast(`Salvataggio OK: ${affected} aggiornati, ${removed} rimossi.`, 'success');
+            }
             await loadMonth();
         } catch (e) {
             showToast('Errore salvataggio: ' + e.message, 'error');

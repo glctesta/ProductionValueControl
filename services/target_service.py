@@ -92,13 +92,14 @@ class TargetService:
             }
         return result
 
-    def upsert_targets(self, rows: List[Dict]) -> int:
+    def upsert_targets(self, rows: List[Dict]) -> Dict:
         """
         Batch upsert via MERGE. `rows` = [{planDate: date, dailyValue: float, notes: str|None}].
-        Ritorna il numero totale di righe interessate.
+        Ritorna {'affected': int, 'failed': List[date]} dove `failed` contiene le date
+        di righe non scritte (errore DB o giorno non lavorativo).
         """
         if not rows:
-            return 0
+            return {'affected': 0, 'failed': []}
 
         merge_sql = """
         MERGE traceability_rs.dbo.DailyProductionTargets AS target
@@ -115,6 +116,7 @@ class TargetService:
         """
 
         affected = 0
+        failed: List[date] = []
         conn = self.db.connect()
         with conn.cursor() as cursor:
             for r in rows:
@@ -125,6 +127,14 @@ class TargetService:
                 notes = r.get('notes')
                 if notes is not None:
                     notes = str(notes)[:255]
+                # Defense in depth: il servizio non scrive su giorni non lavorativi
+                # anche se la route a monte non li ha filtrati.
+                if not self.cal.is_working_day(plan_date):
+                    logger.warning(
+                        f"Upsert target {plan_date} ignorato: non e' un giorno lavorativo."
+                    )
+                    failed.append(plan_date)
+                    continue
                 try:
                     cursor.execute(merge_sql, plan_date, value, notes)
                     affected += 1
@@ -134,7 +144,8 @@ class TargetService:
                     )
                 except Exception as e:
                     logger.error(f"Errore upsert target {plan_date}: {e}")
-        return affected
+                    failed.append(plan_date)
+        return {'affected': affected, 'failed': failed}
 
     def delete_target(self, day: date) -> bool:
         """Rimuove la pianificazione di un giorno. Ritorna True se la riga esisteva."""
@@ -192,7 +203,8 @@ class TargetService:
             )
             return 0
 
-        copied = self.upsert_targets(to_insert)
+        result = self.upsert_targets(to_insert)
+        copied = result['affected']
         logger.info(
             f"Copy from previous month {prev_year}-{prev_month:02d} -> "
             f"{year}-{month:02d}: {copied} giorni copiati."
