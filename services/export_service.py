@@ -173,7 +173,7 @@ class ExportService:
         # 3) Headers
         header_row = 7
         headers = [
-            'Order Number', 'Product Code', 'Product Name', 'Target Qty',
+            'Product Code', 'Product Name', 'Order Numbers', 'Target Qty',
             'Qty WIP OK', 'Qty WIP FAIL', 'Total WIP Qty',
             'Prezzo Unit.', 'Valore WIP OK', 'Valore WIP FAIL', 'Valore WIP Totale'
         ]
@@ -188,6 +188,40 @@ class ExportService:
         ws_main.row_dimensions[header_row].height = 30
         ws_main.freeze_panes = ws_main.cell(row=header_row + 1, column=1).coordinate
 
+        # Raggruppamento per ProductCode
+        grouped_wip = {}
+        for s in wip_summary:
+            p_code = s.get('ProductCode', '')
+            order_num = s.get('OrderNumber', '')
+            qty_ok = int(s.get('QtyOK', 0))
+            qty_fail = int(s.get('QtyFAIL', 0))
+            price = float(s.get('UnitPrice', 0.0))
+            target_qty = int(s.get('TargetQty', 0))
+
+            if p_code not in grouped_wip:
+                grouped_wip[p_code] = {
+                    'ProductCode': p_code,
+                    'ProductName': s.get('ProductName', ''),
+                    'OrderNumbers': [order_num],
+                    'QtyOK': qty_ok,
+                    'QtyFAIL': qty_fail,
+                    'TargetQty': target_qty,
+                    'ValueOK': qty_ok * price,
+                    'ValueFAIL': qty_fail * price
+                }
+            else:
+                entry = grouped_wip[p_code]
+                if order_num not in entry['OrderNumbers']:
+                    entry['OrderNumbers'].append(order_num)
+                entry['QtyOK'] += qty_ok
+                entry['QtyFAIL'] += qty_fail
+                entry['TargetQty'] += target_qty
+                entry['ValueOK'] += qty_ok * price
+                entry['ValueFAIL'] += qty_fail * price
+
+        # Convert to sorted list of groups
+        sorted_groups = sorted(grouped_wip.values(), key=lambda x: x['ProductCode'])
+
         # 4) Write Summary Rows
         cur = header_row + 1
         grand_ok = 0
@@ -197,22 +231,26 @@ class ExportService:
         grand_val_fail = 0.0
         grand_val_total = 0.0
 
-        for s in wip_summary:
-            qty_ok = int(s.get('QtyOK', 0))
-            qty_fail = int(s.get('QtyFAIL', 0))
+        for entry in sorted_groups:
+            qty_ok = entry['QtyOK']
+            qty_fail = entry['QtyFAIL']
             total_qty = qty_ok + qty_fail
-            price = float(s.get('UnitPrice', 0.0))
-            val_ok = qty_ok * price
-            val_fail = qty_fail * price
-            val_total = total_qty * price
+            val_ok = entry['ValueOK']
+            val_fail = entry['ValueFAIL']
+            val_total = val_ok + val_fail
+            
+            # Weighted unit price
+            price = (val_total / total_qty) if total_qty > 0 else 0.0
 
             # Scrive i valori
-            ws_main.cell(row=cur, column=1, value=s.get('OrderNumber')).alignment = _a_center()
-            ws_main.cell(row=cur, column=2, value=s.get('ProductCode')).alignment = _a_center()
-            ws_main.cell(row=cur, column=3, value=s.get('ProductName')).alignment = _a_left(wrap=True)
+            ws_main.cell(row=cur, column=1, value=entry['ProductCode']).alignment = _a_center()
+            ws_main.cell(row=cur, column=2, value=entry['ProductName']).alignment = _a_left(wrap=True)
             
-            t_qty = s.get('TargetQty', 0)
-            ws_main.cell(row=cur, column=4, value=int(t_qty) if t_qty is not None else 0).number_format = INT_FMT
+            orders_str = '; '.join(sorted(entry['OrderNumbers']))
+            ws_main.cell(row=cur, column=3, value=orders_str).alignment = _a_center()
+            
+            t_qty = entry['TargetQty']
+            ws_main.cell(row=cur, column=4, value=t_qty).number_format = INT_FMT
             ws_main.cell(row=cur, column=4).alignment = _a_right()
             
             ws_main.cell(row=cur, column=5, value=qty_ok).number_format = INT_FMT
@@ -289,38 +327,41 @@ class ExportService:
         ws_main.row_dimensions[cur].height = 24
         
         # Column widths for main sheet
-        widths = [14, 16, 35, 14, 14, 14, 14, 14, 18, 18, 20]
+        widths = [16, 35, 25, 14, 14, 14, 14, 14, 18, 18, 20]
         for idx, w in enumerate(widths, 1):
             ws_main.column_dimensions[get_column_letter(idx)].width = w
 
-        # Detail Tabs (one per active WIP order)
-        wip_details_by_order = {}
+        # Detail Tabs (one per active WIP product code)
+        order_to_product = {s['OrderNumber']: s['ProductCode'] for s in wip_summary}
+        wip_details_by_product = {}
         for d in wip_details:
             order_number = d.get('OrderNumber')
-            if order_number not in wip_details_by_order:
-                wip_details_by_order[order_number] = []
-            wip_details_by_order[order_number].append(d)
+            p_code = order_to_product.get(order_number, 'Unknown')
+            if p_code not in wip_details_by_product:
+                wip_details_by_product[p_code] = []
+            wip_details_by_product[p_code].append(d)
 
-        for order_num, boards in wip_details_by_order.items():
-            sheet_title = str(order_num)[:30]
+        for p_code, boards in sorted(wip_details_by_product.items()):
+            safe_title = p_code.replace(':', '_').replace('?', '_').replace('*', '_').replace('/', '_').replace('\\', '_')
+            sheet_title = safe_title[:30]
             ws_detail = wb.create_sheet(title=sheet_title)
-            self._build_wip_detail_sheet(ws_detail, order_num, boards, now)
+            self._build_wip_detail_sheet(ws_detail, p_code, boards, now)
 
         buf = BytesIO()
         wb.save(buf)
         buf.seek(0)
         return buf
 
-    def _build_wip_detail_sheet(self, ws: Worksheet, order_num: str, boards: List[dict], now: datetime) -> None:
+    def _build_wip_detail_sheet(self, ws: Worksheet, product_code: str, boards: List[dict], now: datetime) -> None:
         # 1) Title + Subtitle
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5)
-        title = ws.cell(row=1, column=1, value=f"Dettaglio WIP Ordine {order_num}")
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=6)
+        title = ws.cell(row=1, column=1, value=f"Dettaglio WIP Prodotto {product_code}")
         title.font = Font(name='Calibri', size=13, bold=True, color='FFFFFF')
         title.fill = PatternFill('solid', fgColor=COL_TITLE)
         title.alignment = _a_center()
         ws.row_dimensions[1].height = 24
 
-        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=5)
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=6)
         sub = ws.cell(row=2, column=1, value=f"Totale schede in lavorazione: {len(boards)} \u00b7 Generato: {now.strftime('%d/%m/%Y %H:%M')}")
         sub.font = Font(name='Calibri', size=10, italic=True, color='595959')
         sub.alignment = Alignment(horizontal='right', vertical='center')
@@ -328,7 +369,7 @@ class ExportService:
         # 2) Headers
         header_row = 4
         headers = [
-            'Board ID (IDBoard)', 'Data/Ora Ultima Scansione', 
+            'Order Number', 'Board ID (IDBoard)', 'Data/Ora Ultima Scansione', 
             'Fase Corrente', 'Abbreviazione Fase', 'Stato'
         ]
         for idx, h in enumerate(headers, start=1):
@@ -343,18 +384,19 @@ class ExportService:
         # 3) Data
         cur = header_row + 1
         for b in boards:
-            ws.cell(row=cur, column=1, value=b.get('IDBoard')).alignment = _a_center()
+            ws.cell(row=cur, column=1, value=b.get('OrderNumber')).alignment = _a_center()
+            ws.cell(row=cur, column=2, value=b.get('IDBoard')).alignment = _a_center()
             
             scan_time = b.get('ScanTimeStart')
             time_str = scan_time.strftime('%d/%m/%Y %H:%M:%S') if isinstance(scan_time, datetime) else str(scan_time)
-            ws.cell(row=cur, column=2, value=time_str).alignment = _a_center()
+            ws.cell(row=cur, column=3, value=time_str).alignment = _a_center()
             
-            ws.cell(row=cur, column=3, value=b.get('PhaseName')).alignment = _a_left()
-            ws.cell(row=cur, column=4, value=b.get('PhaseAbbreviation')).alignment = _a_center()
+            ws.cell(row=cur, column=4, value=b.get('PhaseName')).alignment = _a_left()
+            ws.cell(row=cur, column=5, value=b.get('PhaseAbbreviation')).alignment = _a_center()
             
             is_pass = b.get('IsPass')
             status_text = 'OK' if is_pass == 1 else 'FAIL'
-            status_cell = ws.cell(row=cur, column=5, value=status_text)
+            status_cell = ws.cell(row=cur, column=6, value=status_text)
             status_cell.alignment = _a_center()
             
             if is_pass == 1:
@@ -364,13 +406,13 @@ class ExportService:
                 status_cell.fill = PatternFill('solid', fgColor='FFC7CE')
                 status_cell.font = Font(name='Calibri', size=10, bold=True, color='9C0006')
 
-            for col in range(1, 5):
-                ws.cell(row=cur, column=col).font = Font(name='Calibri', size=10)
+            for col in range(1, 7):
                 ws.cell(row=cur, column=col).border = BORDER_ALL
-            ws.cell(row=cur, column=5).border = BORDER_ALL
+                if col < 6:
+                    ws.cell(row=cur, column=col).font = Font(name='Calibri', size=10)
             cur += 1
 
-        widths = [20, 24, 30, 16, 12]
+        widths = [16, 20, 24, 30, 16, 12]
         for idx, w in enumerate(widths, 1):
             ws.column_dimensions[get_column_letter(idx)].width = w
 
