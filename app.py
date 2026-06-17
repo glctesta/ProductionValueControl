@@ -393,6 +393,204 @@ def run_daily_report() -> bool:
         return False
 
 
+def run_wip_daily_report() -> bool:
+    """
+    Compone e invia il report giornaliero del WIP (in inglese).
+    Eseguito da Martedì a Sabato alle 07:40.
+    """
+    try:
+        now = datetime.now()
+        # Chiusura finestra della giornata appena conclusa
+        report_now = now.replace(hour=7, minute=29, second=59, microsecond=0)
+        prod_day = MetricsService.current_production_date(report_now)
+
+        recipients = sql_svc.get_wip_report_recipients()
+        if not recipients:
+            logger.warning(
+                "Daily WIP report: nessun destinatario configurato "
+                "(attribute 'Sys_email_wip')."
+            )
+            return False
+
+        # Calcola i dati del WIP
+        price_map = excel_svc.load_price_map()
+        wip_rows = sql_svc.get_wip_by_day('2026-01-01')
+
+        # Categoria prezzi fallback
+        unique_orders = {r[1] for r in wip_rows}
+        sql_price_cache = {}
+        for order in unique_orders:
+            if order not in price_map:
+                fb = sql_svc.get_price_from_resetservices(order)
+                sql_price_cache[order] = fb if fb is not None else 0.0
+
+        def get_price(o: str) -> float:
+            return price_map[o] if o in price_map else sql_price_cache.get(o, 0.0)
+
+        # Calcolo KPI del WIP
+        wip_orders_count = len(unique_orders)
+        wip_qty_ok = 0
+        wip_qty_fail = 0
+        wip_val_ok = 0.0
+        wip_val_fail = 0.0
+
+        wip_summary_list = []
+        for r in wip_rows:
+            day, order, p_code, p_name, qty_ok, qty_fail = r
+            price = get_price(order)
+            
+            wip_qty_ok += qty_ok
+            wip_qty_fail += qty_fail
+            wip_val_ok += qty_ok * price
+            wip_val_fail += qty_fail * price
+
+            wip_summary_list.append({
+                'OrderNumber': order,
+                'ProductCode': p_code,
+                'ProductName': p_name,
+                'QtyOK': qty_ok,
+                'QtyFAIL': qty_fail,
+                'UnitPrice': price,
+                'TargetQty': 0
+            })
+
+        wip_qty_total = wip_qty_ok + wip_qty_fail
+        wip_val_total = wip_val_ok + wip_val_fail
+
+        # Calcola dati mensili di produzione
+        metrics = metrics_svc.compute(report_now)
+
+        # Calcola YTD Completed Value
+        ytd_start_dt = datetime(prod_day.year, 1, 1, 7, 30, 0)
+        ytd_end_dt = datetime(prod_day.year, prod_day.month, 1, 7, 30, 0)
+        ytd_completed_rows = sql_svc.get_ytd_completed_production(ytd_start_dt, ytd_end_dt)
+        
+        ytd_start_value = 0.0
+        ytd_orders = {r[0] for r in ytd_completed_rows}
+        ytd_price_cache = {}
+        for order in ytd_orders:
+            if order in price_map:
+                ytd_price_cache[order] = price_map[order]
+            else:
+                fb = sql_svc.get_price_from_resetservices(order)
+                ytd_price_cache[order] = fb if fb is not None else 0.0
+
+        for order, qty in ytd_completed_rows:
+            price = ytd_price_cache.get(order, 0.0)
+            ytd_start_value += qty * price
+
+        ytd_total_value = ytd_start_value + metrics.get('monthValue', 0.0)
+
+        # Dettagli bulk per l'Excel
+        wip_details = []
+        for d in sql_svc.get_wip_details_bulk('2026-01-01'):
+            wip_details.append({
+                'OrderNumber': d[0],
+                'IDBoard': d[1],
+                'ScanTimeStart': d[2],
+                'PhaseName': d[3],
+                'PhaseAbbreviation': d[4],
+                'IsPass': d[5]
+            })
+
+        # Genera l'Excel
+        xlsx_buf = export_svc.build_wip_workbook(wip_summary_list, wip_details, report_now)
+        xlsx_bytes = xlsx_buf.getvalue()
+        xlsx_filename = f"WIP_Report_{prod_day.strftime('%Y%m%d')}.xlsx"
+
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #333; max-width: 800px; margin: 0 auto; line-height: 1.5;">
+            <h2 style="color: #1F4E78; border-bottom: 2px solid #1F4E78; padding-bottom: 8px;">
+                Daily WIP & Production Summary Report
+            </h2>
+            <p>Dear Colleagues,</p>
+            <p>Please find below the daily Work In Progress (WIP) and Production value report for the production day <strong>{prod_day.strftime('%d/%m/%Y')}</strong>.</p>
+            
+            <h3 style="color: #2E75B6; margin-top: 24px;">1. Work In Progress (WIP) Status</h3>
+            <table style="border-collapse: collapse; width: 100%; font-size: 14px; margin-bottom: 16px;">
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold; width: 250px;">Total WIP Value:</td>
+                    <td style="padding: 8px; font-size: 15px; font-weight: bold; color: #1F4E78;">{_fmt_eur(wip_val_total)}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold; padding-left: 20px;">- WIP OK Value:</td>
+                    <td style="padding: 8px; color: #2E75B6;">{_fmt_eur(wip_val_ok)}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold; padding-left: 20px;">- WIP FAIL Value:</td>
+                    <td style="padding: 8px; color: #C00000;">{_fmt_eur(wip_val_fail)}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold;">Total WIP Pieces:</td>
+                    <td style="padding: 8px;">{wip_qty_total:,} pcs (OK: {wip_qty_ok:,} / FAIL: {wip_qty_fail:,})</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold;">Active WIP Orders:</td>
+                    <td style="padding: 8px;">{wip_orders_count}</td>
+                </tr>
+            </table>
+
+            <h3 style="color: #2E75B6; margin-top: 24px;">2. Current Month Production Status</h3>
+            <table style="border-collapse: collapse; width: 100%; font-size: 14px; margin-bottom: 16px;">
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold; width: 250px;">Monthly Target:</td>
+                    <td style="padding: 8px;">{_fmt_eur(metrics.get('monthlyTarget'))}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold;">Completed Value (Month):</td>
+                    <td style="padding: 8px; font-weight: bold;">{_fmt_eur(metrics.get('monthValue'))}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold;">Gap to Monthly Target:</td>
+                    <td style="padding: 8px; color: {'#C00000' if metrics.get('monthlyGap', 0) > 0 else '#006100'}; font-weight: bold;">
+                        {_fmt_eur(metrics.get('monthlyGap'))}
+                    </td>
+                </tr>
+            </table>
+
+            <h3 style="color: #2E75B6; margin-top: 24px;">3. Year-To-Date (YTD) Production</h3>
+            <table style="border-collapse: collapse; width: 100%; font-size: 14px; margin-bottom: 24px;">
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold; width: 250px;">YTD Completed Value:</td>
+                    <td style="padding: 8px; font-size: 15px; font-weight: bold; color: #1F4E78;">{_fmt_eur(ytd_total_value)}</td>
+                </tr>
+            </table>
+
+            <p style="font-size: 13px; color: #555;">
+                * The detailed multi-sheet Excel workbook is attached to this email. It contains a "Sintesi WIP" tab and individual sheets for each of the {wip_orders_count} active WIP orders with board-level tracking.
+            </p>
+            
+            <br/>
+            <p style="color: #666; font-size: 13px; border-top: 1px solid #ddd; padding-top: 12px; margin-top: 20px;">
+                Best regards,<br/>
+                <strong>Production Value Monitoring System</strong>
+            </p>
+        </body>
+        </html>
+        """
+
+        subject = f"[Production WIP] Daily Report \u2014 {prod_day.strftime('%d/%m/%Y')}"
+        attachments = [(
+            xlsx_filename,
+            xlsx_bytes,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )]
+
+        ok = email_svc.send(
+            recipients=recipients,
+            subject=subject,
+            html_body=html_body,
+            attachments=attachments
+        )
+        if ok:
+            logger.info(f"Daily WIP report sent successfully to {len(recipients)} recipients.")
+        return ok
+    except Exception as e:
+        logger.exception(f"Daily WIP report error: {e}")
+        return False
+
+
 def _start_scheduler() -> BackgroundScheduler:
     sched = BackgroundScheduler()
     sched.add_job(
@@ -404,8 +602,17 @@ def _start_scheduler() -> BackgroundScheduler:
         misfire_grace_time=60 * 60,  # esegue entro 1h se la macchina era spenta
         coalesce=True,
     )
+    sched.add_job(
+        run_wip_daily_report,
+        CronTrigger(day_of_week='tue-sat', hour=7, minute=40),
+        id='daily_wip_report_0740',
+        name='Daily WIP report (07:40, Tue-Sat)',
+        replace_existing=True,
+        misfire_grace_time=60 * 60,
+        coalesce=True,
+    )
     sched.start()
-    logger.info("Scheduler avviato: job 'daily_report_0735' alle 07:35 ora locale.")
+    logger.info("Scheduler avviato: job 'daily_report_0735' alle 07:35 e 'daily_wip_report_0740' alle 07:40 (Mar-Sab) ora locale.")
     return sched
 
 
@@ -449,6 +656,202 @@ def api_export_month_excel():
     except Exception as e:
         logger.exception("Errore export Excel")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/wip')
+def api_wip():
+    try:
+        now = datetime.now()
+        prod_day = MetricsService.current_production_date(now)
+
+        price_map = excel_svc.load_price_map()
+        wip_rows = sql_svc.get_wip_by_day('2026-01-01')
+
+        # Pre-resolve and cache SQL prices to avoid executing query inside loop for same orders
+        unique_orders = {r[1] for r in wip_rows}
+        sql_price_cache = {}
+        for order in unique_orders:
+            if order not in price_map:
+                fb = sql_svc.get_price_from_resetservices(order)
+                sql_price_cache[order] = fb if fb is not None else 0.0
+
+        def get_price(o: str) -> float:
+            return price_map[o] if o in price_map else sql_price_cache.get(o, 0.0)
+
+        # Raggruppamento per giorno
+        day_aggregation = {}
+        global_qty_ok = 0
+        global_qty_fail = 0
+        global_val_ok = 0.0
+        global_val_fail = 0.0
+
+        for r in wip_rows:
+            day, order, p_code, p_name, qty_ok, qty_fail = r
+            price = get_price(order)
+            val_ok = qty_ok * price
+            val_fail = qty_fail * price
+            
+            day_str = day.isoformat()
+            if day_str not in day_aggregation:
+                day_aggregation[day_str] = {
+                    'ProductionDay': day_str,
+                    'QtyOK': 0,
+                    'QtyFAIL': 0,
+                    'ValueOK': 0.0,
+                    'ValueFAIL': 0.0,
+                    'Orders': []
+                }
+            
+            day_aggregation[day_str]['QtyOK'] += qty_ok
+            day_aggregation[day_str]['QtyFAIL'] += qty_fail
+            day_aggregation[day_str]['ValueOK'] += val_ok
+            day_aggregation[day_str]['ValueFAIL'] += val_fail
+            day_aggregation[day_str]['Orders'].append({
+                'OrderNumber': order,
+                'ProductCode': p_code,
+                'ProductName': p_name,
+                'QtyOK': qty_ok,
+                'QtyFAIL': qty_fail,
+                'UnitPrice': price,
+                'ValueOK': val_ok,
+                'ValueFAIL': val_fail,
+                'TotalValue': val_ok + val_fail
+            })
+
+            global_qty_ok += qty_ok
+            global_qty_fail += qty_fail
+            global_val_ok += val_ok
+            global_val_fail += val_fail
+
+        # Convert day aggregation to sorted list (newest first)
+        sorted_days = sorted(day_aggregation.values(), key=lambda x: x['ProductionDay'], reverse=True)
+
+        # Calcola YTD Completed Value (inizio anno fino a inizio mese corrente)
+        ytd_start_dt = datetime(prod_day.year, 1, 1, 7, 30, 0)
+        ytd_end_dt = datetime(prod_day.year, prod_day.month, 1, 7, 30, 0)
+        ytd_completed_rows = sql_svc.get_ytd_completed_production(ytd_start_dt, ytd_end_dt)
+        
+        ytd_start_value = 0.0
+        ytd_orders = {r[0] for r in ytd_completed_rows}
+        ytd_price_cache = {}
+        for order in ytd_orders:
+            if order in price_map:
+                ytd_price_cache[order] = price_map[order]
+            else:
+                fb = sql_svc.get_price_from_resetservices(order)
+                ytd_price_cache[order] = fb if fb is not None else 0.0
+
+        for order, qty in ytd_completed_rows:
+            price = ytd_price_cache.get(order, 0.0)
+            ytd_start_value += qty * price
+
+        # Ottieni le metriche del mese corrente per agganciare le progressioni
+        metrics = metrics_svc.compute(now)
+
+        # Conta i giorni lavorativi YTD precedenti al mese in corso per il target YTD
+        ytd_working_days = 0
+        for m in range(1, prod_day.month):
+            ytd_working_days += len(cal_svc.working_days_in_month(prod_day.year, m))
+
+        ytd_start_target = ytd_working_days * metrics.get('dailyTarget', 0.0)
+
+        # Costruisce i dati per il grafico inferiore YTD del WIP page
+        target_ytd = [round(ytd_start_target + t, 2) for t in metrics['chart']['target']]
+        rolling_ytd = [round(ytd_start_value + r, 2) if r is not None else None for r in metrics['chart']['rollingMonth']]
+        average_ytd = [round(ytd_start_value + a, 2) for a in metrics['chart']['average']]
+
+        return jsonify({
+            'wipTotalValOk': round(global_val_ok, 2),
+            'wipTotalValFail': round(global_val_fail, 2),
+            'wipTotalVal': round(global_val_ok + global_val_fail, 2),
+            'wipTotalQtyOk': global_qty_ok,
+            'wipTotalQtyFail': global_qty_fail,
+            'wipTotalQty': global_qty_ok + global_qty_fail,
+            'wipOrdersCount': len(unique_orders),
+            'wipByDay': sorted_days,
+            'chartYtd': {
+                'labels': metrics['chart']['labels'],
+                'target': target_ytd,
+                'rolling': rolling_ytd,
+                'average': average_ytd,
+                'ytdStartValue': round(ytd_start_value, 2)
+            }
+        })
+    except Exception as e:
+        logger.exception("Errore nel calcolo del WIP")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/export/wip-excel')
+def api_export_wip_excel():
+    try:
+        now = datetime.now()
+        prod_day = MetricsService.current_production_date(now)
+
+        # Calcola i dati sintetici
+        price_map = excel_svc.load_price_map()
+        wip_rows = sql_svc.get_wip_by_day('2026-01-01')
+        
+        # Pre-resolve prices
+        unique_orders = {r[1] for r in wip_rows}
+        sql_price_cache = {}
+        for order in unique_orders:
+            if order not in price_map:
+                fb = sql_svc.get_price_from_resetservices(order)
+                sql_price_cache[order] = fb if fb is not None else 0.0
+
+        def get_price(o: str) -> float:
+            return price_map[o] if o in price_map else sql_price_cache.get(o, 0.0)
+
+        # Sintesi ordini
+        wip_summary_data = []
+        for r in wip_rows:
+            day, order, p_code, p_name, qty_ok, qty_fail = r
+            price = get_price(order)
+            wip_summary_data.append({
+                'OrderNumber': order,
+                'ProductCode': p_code,
+                'ProductName': p_name,
+                'QtyOK': qty_ok,
+                'QtyFAIL': qty_fail,
+                'UnitPrice': price,
+                'TargetQty': 0
+            })
+
+        # Dettaglio analitico delle schede in bulk
+        wip_details_data = []
+        for d in sql_svc.get_wip_details_bulk('2026-01-01'):
+            wip_details_data.append({
+                'OrderNumber': d[0],
+                'IDBoard': d[1],
+                'ScanTimeStart': d[2],
+                'PhaseName': d[3],
+                'PhaseAbbreviation': d[4],
+                'IsPass': d[5]
+            })
+
+        buf = export_svc.build_wip_workbook(wip_summary_data, wip_details_data, now)
+        filename = f"WIP_Report_{now.strftime('%Y%m%d_%H%M')}.xlsx"
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+    except Exception as e:
+        logger.exception("Errore export WIP Excel")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/daily-report/wip-test', methods=['POST', 'GET'])
+def api_daily_report_wip_test():
+    """
+    Trigger manuale per testare l'invio del report WIP.
+    """
+    ok = run_wip_daily_report()
+    if ok:
+        return jsonify({'ok': True, 'message': 'WIP Report inviato.'})
+    return jsonify({'ok': False, 'message': 'WIP Report non inviato (vedi log per dettagli).'}), 500
 
 
 @app.route('/api/daily-report/test', methods=['POST', 'GET'])

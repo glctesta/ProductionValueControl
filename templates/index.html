@@ -10,42 +10,68 @@
 <body data-refresh-minutes="{{ refresh_minutes }}">
     <div id="dashboard">
         <header id="header">
-            <div id="kpis">
-                <div class="kpi">
-                    <span class="kpi-label">Target Giornaliero</span>
-                    <span class="kpi-value" id="kpi-daily-target">&mdash;</span>
+            <div id="kpis-container">
+                <!-- KPI Produzione -->
+                <div id="kpis-production" class="kpi-group">
+                    <div class="kpi">
+                        <span class="kpi-label">Target Giornaliero</span>
+                        <span class="kpi-value" id="kpi-daily-target">&mdash;</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="kpi-label">Target Mensile</span>
+                        <span class="kpi-value" id="kpi-monthly-target">&mdash;</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="kpi-label">Valore Prodotto Oggi</span>
+                        <span class="kpi-value" id="kpi-today-value">&mdash;</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="kpi-label">Valore Prodotto Mese</span>
+                        <span class="kpi-value" id="kpi-month-value">&mdash;</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="kpi-label">Gap Giornaliero</span>
+                        <span class="kpi-value" id="kpi-daily-gap">&mdash;</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="kpi-label">Gap Mensile</span>
+                        <span class="kpi-value" id="kpi-monthly-gap">&mdash;</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="kpi-label">Previsione Fine Giorno</span>
+                        <span class="kpi-value" id="kpi-forecast-day">&mdash;</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="kpi-label">Previsione Fine Mese</span>
+                        <span class="kpi-value" id="kpi-forecast-month">&mdash;</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="kpi-label">Aggiustamento Richiesto / Giorno</span>
+                        <span class="kpi-value" id="kpi-required">&mdash;</span>
+                    </div>
                 </div>
-                <div class="kpi">
-                    <span class="kpi-label">Target Mensile</span>
-                    <span class="kpi-value" id="kpi-monthly-target">&mdash;</span>
-                </div>
-                <div class="kpi">
-                    <span class="kpi-label">Valore Prodotto Oggi</span>
-                    <span class="kpi-value" id="kpi-today-value">&mdash;</span>
-                </div>
-                <div class="kpi">
-                    <span class="kpi-label">Valore Prodotto Mese</span>
-                    <span class="kpi-value" id="kpi-month-value">&mdash;</span>
-                </div>
-                <div class="kpi">
-                    <span class="kpi-label">Gap Giornaliero</span>
-                    <span class="kpi-value" id="kpi-daily-gap">&mdash;</span>
-                </div>
-                <div class="kpi">
-                    <span class="kpi-label">Gap Mensile</span>
-                    <span class="kpi-value" id="kpi-monthly-gap">&mdash;</span>
-                </div>
-                <div class="kpi">
-                    <span class="kpi-label">Previsione Fine Giorno</span>
-                    <span class="kpi-value" id="kpi-forecast-day">&mdash;</span>
-                </div>
-                <div class="kpi">
-                    <span class="kpi-label">Previsione Fine Mese</span>
-                    <span class="kpi-value" id="kpi-forecast-month">&mdash;</span>
-                </div>
-                <div class="kpi">
-                    <span class="kpi-label">Aggiustamento Richiesto / Giorno</span>
-                    <span class="kpi-value" id="kpi-required">&mdash;</span>
+                <!-- KPI WIP -->
+                <div id="kpis-wip" class="kpi-group hidden">
+                    <div class="kpi">
+                        <span class="kpi-label">Valore Totale WIP</span>
+                        <span class="kpi-value" id="kpi-wip-total-val">&mdash;</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="kpi-label">WIP Valore OK</span>
+                        <span class="kpi-value" id="kpi-wip-ok-val">&mdash;</span>
+                    </div>
+                    <div class="kpi" style="border-left: 3px solid #ff5252;">
+                        <span class="kpi-label" style="color: #ffa4a4;">WIP Valore FAIL</span>
+                        <span class="kpi-value" id="kpi-wip-fail-val" style="color: #ff5252;">&mdash;</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="kpi-label">Pezzi Totali WIP</span>
+                        <span class="kpi-value" id="kpi-wip-total-qty">&mdash;</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="kpi-label">Ordini Attivi WIP</span>
+                        <span class="kpi-value" id="kpi-wip-orders-count">&mdash;</span>
+                    </div>
                 </div>
             </div>
             <div id="header-right">
@@ -58,39 +84,100 @@
                     <div class="refresh-label">Prossimo refresh</div>
                     <div class="refresh-countdown"><span id="countdown">--</span> min</div>
                     <div class="header-buttons">
+                        <button id="toggle-view-btn" type="button">Vai a WIP</button>
                         <button id="refresh-btn" type="button">Refresh</button>
                         <button id="export-btn" type="button" title="Scarica report Excel del mese corrente">Export Excel</button>
+                        <button id="export-wip-btn" type="button" class="hidden" title="Scarica report Excel del WIP">Export WIP</button>
                     </div>
                 </div>
                 <img id="logo" src="/logo.png" alt="Logo">
             </div>
         </header>
 
-        <main id="chart-container">
-            <canvas id="chart"></canvas>
-        </main>
+        <!-- Contenuto principale alternabile -->
+        <div id="panel-production" class="view-panel">
+            <main id="chart-container">
+                <canvas id="chart"></canvas>
+            </main>
 
-        <footer id="legend">
-            <div class="legend-item">
-                <span class="legend-color" style="background:#4fc3f7"></span>
-                Target (lineare sul giorno lavorativo)
+            <footer id="legend">
+                <div class="legend-item">
+                    <span class="legend-color" style="background:#4fc3f7"></span>
+                    Target (lineare sul giorno lavorativo)
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background:#ffb74d"></span>
+                    Media (giorni lavorativi)
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background:#81c784"></span>
+                    Rolling Mese (cumulato reale con carry-forward dei giorni non lavorativi)
+                </div>
+                <div class="legend-item legend-warning">
+                    <span class="star-icon">&#11088;</span>
+                    Stella gialla: alcuni ordini prodotti oggi non sono presenti nel file Excel D365 &mdash; il valore mostrato potrebbe essere sottostimato.
+                </div>
+                <div class="legend-item legend-meta">
+                    <span id="source-info"></span>
+                </div>
+            </footer>
+        </div>
+
+        <div id="panel-wip" class="view-panel hidden">
+            <div id="wip-content">
+                <!-- Sezione Tabella WIP Giornaliera -->
+                <div id="wip-table-wrapper">
+                    <h3>Dettaglio Ordini in WIP per Giorno di Ingresso (PTH)</h3>
+                    <div id="wip-table-scroll">
+                        <table id="wip-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px;"></th>
+                                    <th>Giorno Prod. Ingresso</th>
+                                    <th style="text-align: right;">Pezzi OK</th>
+                                    <th style="text-align: right;">Pezzi FAIL</th>
+                                    <th style="text-align: right;">Pezzi Totali</th>
+                                    <th style="text-align: right;">Valore OK</th>
+                                    <th style="text-align: right;">Valore FAIL</th>
+                                    <th style="text-align: right;">Valore Totale</th>
+                                </tr>
+                            </thead>
+                            <tbody id="wip-table-body">
+                                <tr>
+                                    <td colspan="8" style="text-align: center; color: #8fa3bf;">Caricamento dati WIP in corso...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Sezione Grafico Bottom (YTD rolling del mese corrente) -->
+                <div id="wip-chart-wrapper">
+                    <h3>Andamento YTD (Cumulativo da Inizio Anno sul Mese Corrente)</h3>
+                    <div id="wip-chart-container">
+                        <canvas id="chart-wip"></canvas>
+                    </div>
+                </div>
             </div>
-            <div class="legend-item">
-                <span class="legend-color" style="background:#ffb74d"></span>
-                Media (giorni lavorativi)
-            </div>
-            <div class="legend-item">
-                <span class="legend-color" style="background:#81c784"></span>
-                Rolling Mese (cumulato reale con carry-forward dei giorni non lavorativi)
-            </div>
-            <div class="legend-item legend-warning">
-                <span class="star-icon">&#11088;</span>
-                Stella gialla: alcuni ordini prodotti oggi non sono presenti nel file Excel D365 &mdash; il valore mostrato potrebbe essere sottostimato.
-            </div>
-            <div class="legend-item legend-meta">
-                <span id="source-info"></span>
-            </div>
-        </footer>
+
+            <footer id="legend-wip">
+                <div class="legend-item">
+                    <span class="legend-color" style="background:#4fc3f7"></span>
+                    Target YTD (dal 1° Gennaio sul mese in corso)
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background:#ffb74d"></span>
+                    Media YTD (cumulata)
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background:#81c784"></span>
+                    Rolling YTD (cumulato reale da inizio anno sul mese in corso)
+                </div>
+                <div class="legend-item legend-meta">
+                    <span id="wip-source-info"></span>
+                </div>
+            </footer>
+        </div>
     </div>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

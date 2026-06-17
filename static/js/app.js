@@ -1,8 +1,14 @@
 (function () {
     const REFRESH_MINUTES = parseInt(document.body.dataset.refreshMinutes || '60', 10);
     let chartInstance = null;
+    let wipChartInstance = null;
     let countdownSeconds = REFRESH_MINUTES * 60;
     let countdownInterval = null;
+    
+    // View state
+    let currentView = 'production'; // 'production' o 'wip'
+    const ROTATION_SECONDS = 20;
+    let secondsSinceRotation = 0;
 
     const eurFmt = new Intl.NumberFormat('it-IT', {
         style: 'currency',
@@ -33,12 +39,27 @@
     function startCountdown() {
         if (countdownInterval) clearInterval(countdownInterval);
         countdownInterval = setInterval(() => {
+            // 1. Gestione Refresh Decimale (60 minuti)
             countdownSeconds--;
             updateCountdown();
             if (countdownSeconds <= 0) {
-                loadMetrics();
+                refreshAllData();
+            }
+
+            // 2. Gestione Rotazione Automatica (20 secondi)
+            secondsSinceRotation++;
+            if (secondsSinceRotation >= ROTATION_SECONDS) {
+                secondsSinceRotation = 0;
+                toggleView();
             }
         }, 1000);
+    }
+
+    function refreshAllData() {
+        loadMetrics();
+        if (currentView === 'wip' || document.getElementById('panel-wip').classList.contains('hidden') === false) {
+            loadWipMetrics();
+        }
     }
 
     function setKpi(id, value, kind) {
@@ -65,15 +86,13 @@
     }
 
     function rootFontPx() {
-        // Dimensione del font root in px, usata per scalare il font di Chart.js
-        // insieme al resto dell'interfaccia (vedi css html { font-size: clamp(...) }).
         return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     }
 
     function renderChart(data) {
         const ctx = document.getElementById('chart').getContext('2d');
         const baseFont = rootFontPx();
-        const tickFont = Math.round(baseFont * 0.8);   // ~12px su 16px root, scala su 4K
+        const tickFont = Math.round(baseFont * 0.8);   // ~12px su 16px root
         const titleFont = Math.round(baseFont * 0.85);
         const tooltipBody = Math.round(baseFont * 0.85);
         const datasets = [
@@ -274,8 +293,292 @@
         }
     }
 
-    document.getElementById('refresh-btn').addEventListener('click', loadMetrics);
+    // ------------------------------------------------------------- WIP View Functions
+    async function loadWipMetrics() {
+        const tbody = document.getElementById('wip-table-body');
+        const src = document.getElementById('wip-source-info');
+        
+        try {
+            const resp = await fetch('/api/wip', { cache: 'no-store' });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const data = await resp.json();
+            if (data.error) throw new Error(data.error);
 
+            // Popola KPI WIP
+            document.getElementById('kpi-wip-total-val').textContent = formatEUR(data.wipTotalVal);
+            document.getElementById('kpi-wip-ok-val').textContent = formatEUR(data.wipTotalValOk);
+            document.getElementById('kpi-wip-fail-val').textContent = formatEUR(data.wipTotalValFail);
+            document.getElementById('kpi-wip-total-qty').textContent = new Intl.NumberFormat('it-IT').format(data.wipTotalQty) + ' pz (OK: ' + data.wipTotalQtyOk + ' / FAIL: ' + data.wipTotalQtyFail + ')';
+            document.getElementById('kpi-wip-orders-count').textContent = data.wipOrdersCount;
+
+            // Rende tabella giornaliera
+            tbody.innerHTML = '';
+            if (!data.wipByDay || data.wipByDay.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #8fa3bf; padding: 20px;">Nessun ordine in WIP attivo nel 2026.</td></tr>';
+            } else {
+                data.wipByDay.forEach(dayData => {
+                    const dayStr = dayData.ProductionDay;
+                    const dParts = dayStr.split('-');
+                    const dateFmt = `${dParts[2]}/${dParts[1]}/${dParts[0]}`;
+                    
+                    const rowId = `wip-row-${dayStr}`;
+                    const detailId = `wip-detail-${dayStr}`;
+                    
+                    const totalQty = dayData.QtyOK + dayData.QtyFAIL;
+                    const totalVal = dayData.ValueOK + dayData.ValueFAIL;
+
+                    const tr = document.createElement('tr');
+                    tr.id = rowId;
+                    tr.className = 'wip-day-header-row';
+                    tr.innerHTML = `
+                        <td style="text-align: center; color: #4fc3f7;" class="wip-caret">&#9654;</td>
+                        <td style="font-weight: bold; color: #f2f6fb;">${dateFmt}</td>
+                        <td style="text-align: right; color: #81c784;">${new Intl.NumberFormat('it-IT').format(dayData.QtyOK)}</td>
+                        <td style="text-align: right; color: #ff5252;">${new Intl.NumberFormat('it-IT').format(dayData.QtyFAIL)}</td>
+                        <td style="text-align: right; font-weight: bold;">${new Intl.NumberFormat('it-IT').format(totalQty)}</td>
+                        <td style="text-align: right; color: #81c784;">${formatEUR(dayData.ValueOK)}</td>
+                        <td style="text-align: right; color: #ff5252;">${formatEUR(dayData.ValueFAIL)}</td>
+                        <td style="text-align: right; font-weight: bold; color: #4fc3f7;">${formatEUR(totalVal)}</td>
+                    `;
+                    tbody.appendChild(tr);
+
+                    const trDetail = document.createElement('tr');
+                    trDetail.id = detailId;
+                    trDetail.className = 'wip-detail-row hidden';
+                    
+                    let ordersHtml = `
+                        <div class="nested-wip-table-container">
+                            <table class="nested-wip-table">
+                                <thead>
+                                    <tr>
+                                        <th>Order Number</th>
+                                        <th>Product Code</th>
+                                        <th>Product Name</th>
+                                        <th style="text-align: right;">Qty OK</th>
+                                        <th style="text-align: right;">Qty FAIL</th>
+                                        <th style="text-align: right;">Prezzo Unit.</th>
+                                        <th style="text-align: right;">Valore Totale</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                    `;
+                    
+                    dayData.Orders.forEach(o => {
+                        ordersHtml += `
+                            <tr>
+                                <td style="text-align: center; font-weight: bold; color: #4fc3f7;">${o.OrderNumber}</td>
+                                <td style="text-align: center; color: #f2f6fb;">${o.ProductCode}</td>
+                                <td>${o.ProductName}</td>
+                                <td style="text-align: right; color: #81c784;">${new Intl.NumberFormat('it-IT').format(o.QtyOK)}</td>
+                                <td style="text-align: right; color: #ff5252;">${new Intl.NumberFormat('it-IT').format(o.QtyFAIL)}</td>
+                                <td style="text-align: right;">${formatEUR(o.UnitPrice)}</td>
+                                <td style="text-align: right; font-weight: bold; color: #4fc3f7;">${formatEUR(o.TotalValue)}</td>
+                            </tr>
+                        `;
+                    });
+
+                    ordersHtml += `
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+
+                    trDetail.innerHTML = `<td colspan="8" style="padding: 10px 15px; background: rgba(30,46,68,0.4);">${ordersHtml}</td>`;
+                    tbody.appendChild(trDetail);
+
+                    // Click handler per espandere/collassare la tabella degli ordini
+                    tr.addEventListener('click', () => {
+                        const isHidden = trDetail.classList.contains('hidden');
+                        const caret = tr.querySelector('.wip-caret');
+                        if (isHidden) {
+                            trDetail.classList.remove('hidden');
+                            caret.innerHTML = '&#9660;';
+                        } else {
+                            trDetail.classList.add('hidden');
+                            caret.innerHTML = '&#9654;';
+                        }
+                    });
+                });
+            }
+
+            if (src) {
+                src.textContent = `Aggiornato alle: ${new Date().toLocaleTimeString('it-IT')} \u2022 Valore YTD iniziale (1 Gen): ${formatEUR(data.chartYtd.ytdStartValue)}`;
+            }
+
+            renderWipChart(data);
+
+        } catch (e) {
+            console.error('Errore caricamento WIP:', e);
+            if (src) src.textContent = 'Errore: ' + e.message;
+        }
+    }
+
+    function renderWipChart(data) {
+        const ctx = document.getElementById('chart-wip').getContext('2d');
+        const baseFont = rootFontPx();
+        const tickFont = Math.round(baseFont * 0.8);
+        const titleFont = Math.round(baseFont * 0.85);
+        const tooltipBody = Math.round(baseFont * 0.85);
+        const datasets = [
+            {
+                label: 'Target YTD',
+                data: data.chartYtd.target,
+                borderColor: '#4fc3f7',
+                backgroundColor: 'transparent',
+                borderWidth: 3,
+                borderDash: [10, 5],
+                tension: 0.15,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+            },
+            {
+                label: 'Media YTD',
+                data: data.chartYtd.average,
+                borderColor: '#ffb74d',
+                backgroundColor: 'transparent',
+                borderWidth: 3,
+                tension: 0.2,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+            },
+            {
+                label: 'Rolling YTD',
+                data: data.chartYtd.rolling,
+                borderColor: '#81c784',
+                backgroundColor: 'rgba(129,199,132,0.15)',
+                borderWidth: 4,
+                tension: 0.25,
+                fill: true,
+                pointRadius: 4,
+                pointHoverRadius: 7,
+                pointBackgroundColor: '#81c784',
+                pointBorderColor: '#0b111c',
+                pointBorderWidth: 2,
+                spanGaps: false,
+            },
+        ];
+
+        if (wipChartInstance) {
+            wipChartInstance.data.labels = data.chartYtd.labels;
+            wipChartInstance.data.datasets.forEach((ds, i) => {
+                ds.data = datasets[i].data;
+            });
+            wipChartInstance.update('none');
+            return;
+        }
+
+        wipChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { labels: data.chartYtd.labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(20,32,46,0.95)',
+                        titleColor: '#f2f6fb',
+                        bodyColor: '#e8ecf2',
+                        footerColor: '#81c784',
+                        borderColor: '#4fc3f7',
+                        borderWidth: 1,
+                        padding: Math.round(baseFont * 0.75),
+                        titleFont: { size: tooltipBody + 1, weight: '600' },
+                        bodyFont: { size: tooltipBody },
+                        footerFont: { size: tooltipBody, weight: '600' },
+                        callbacks: {
+                            title: (items) => 'Giorno lavorativo ' + (items[0] ? items[0].label : ''),
+                            label: (c) => {
+                                const cum = c.parsed.y;
+                                return c.dataset.label + ': ' + formatEUR(cum) + ' (cumulato YTD)';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#8fa3bf', font: { size: tickFont } },
+                        grid: { color: 'rgba(255,255,255,0.04)' },
+                        title: {
+                            display: true,
+                            text: 'Giorno lavorativo del mese',
+                            color: '#8fa3bf',
+                            font: { size: titleFont, weight: '600' },
+                        },
+                    },
+                    y: {
+                        ticks: {
+                            color: '#8fa3bf',
+                            font: { size: 12 },
+                            callback: (v) => formatEUR(v),
+                        },
+                        grid: { color: 'rgba(255,255,255,0.04)' },
+                        title: {
+                            display: true,
+                            text: 'Valore YTD Cumulato',
+                            color: '#8fa3bf',
+                            font: { size: titleFont, weight: '600' },
+                        },
+                    },
+                }
+            }
+        });
+    }
+
+    // Toggle view logic
+    function toggleView(forceView) {
+        const nextView = forceView || (currentView === 'production' ? 'wip' : 'production');
+        if (nextView === currentView) return;
+
+        currentView = nextView;
+        secondsSinceRotation = 0; // resetta contatore rotazione
+
+        const btn = document.getElementById('toggle-view-btn');
+        const prodKpis = document.getElementById('kpis-production');
+        const wipKpis = document.getElementById('kpis-wip');
+        const prodPanel = document.getElementById('panel-production');
+        const wipPanel = document.getElementById('panel-wip');
+        const exportBtn = document.getElementById('export-btn');
+        const exportWipBtn = document.getElementById('export-wip-btn');
+
+        if (currentView === 'production') {
+            btn.textContent = 'Vai a WIP';
+            wipKpis.classList.add('hidden');
+            prodKpis.classList.remove('hidden');
+            wipPanel.classList.add('hidden');
+            prodPanel.classList.remove('hidden');
+            exportWipBtn.classList.add('hidden');
+            exportBtn.classList.remove('hidden');
+
+            if (chartInstance) {
+                chartInstance.resize();
+                chartInstance.update();
+            }
+        } else {
+            btn.textContent = 'Vai a Produzione';
+            prodKpis.classList.add('hidden');
+            wipKpis.classList.remove('hidden');
+            prodPanel.classList.add('hidden');
+            wipPanel.classList.remove('hidden');
+            exportBtn.classList.add('hidden');
+            exportWipBtn.classList.remove('hidden');
+
+            loadWipMetrics();
+        }
+    }
+
+    // Wiring up view toggling
+    document.getElementById('toggle-view-btn').addEventListener('click', () => {
+        toggleView();
+    });
+
+    // Refresh action
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+        refreshAllData();
+    });
+
+    // Export Excel Production
     const exportBtn = document.getElementById('export-btn');
     if (exportBtn) {
         exportBtn.addEventListener('click', async () => {
@@ -289,7 +592,7 @@
                     try {
                         const j = await resp.json();
                         if (j && j.error) msg = j.error;
-                    } catch (_) { /* non-json */ }
+                    } catch (_) { }
                     throw new Error(msg);
                 }
                 const disp = resp.headers.get('Content-Disposition') || '';
@@ -315,14 +618,53 @@
         });
     }
 
+    // Export Excel WIP
+    const exportWipBtn = document.getElementById('export-wip-btn');
+    if (exportWipBtn) {
+        exportWipBtn.addEventListener('click', async () => {
+            exportWipBtn.disabled = true;
+            const original = exportWipBtn.textContent;
+            exportWipBtn.textContent = 'Generazione…';
+            try {
+                const resp = await fetch('/api/export/wip-excel', { cache: 'no-store' });
+                if (!resp.ok) {
+                    let msg = 'HTTP ' + resp.status;
+                    try {
+                        const j = await resp.json();
+                        if (j && j.error) msg = j.error;
+                    } catch (_) { }
+                    throw new Error(msg);
+                }
+                const disp = resp.headers.get('Content-Disposition') || '';
+                const m = /filename="?([^";]+)"?/i.exec(disp);
+                const filename = m ? m[1] : 'WIP_Report.xlsx';
+
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1500);
+            } catch (e) {
+                console.error('Errore export WIP Excel:', e);
+                alert('Errore nella generazione del file Excel WIP: ' + e.message);
+            } finally {
+                exportWipBtn.disabled = false;
+                exportWipBtn.textContent = original;
+            }
+        });
+    }
+
     updateClock();
     setInterval(updateClock, 1000);
     updateCountdown();
     startCountdown();
     loadMetrics();
 
-    // Ridisegna il chart (per ricalcolare font in base al nuovo root font-size)
-    // quando la finestra del browser viene ridimensionata / spostata su altro monitor.
+    // Resize handlers
     let resizeTimer = null;
     window.addEventListener('resize', () => {
         if (resizeTimer) clearTimeout(resizeTimer);
@@ -330,7 +672,14 @@
             if (chartInstance) {
                 chartInstance.destroy();
                 chartInstance = null;
-                loadMetrics();
+            }
+            if (wipChartInstance) {
+                wipChartInstance.destroy();
+                wipChartInstance = null;
+            }
+            loadMetrics();
+            if (currentView === 'wip') {
+                loadWipMetrics();
             }
         }, 250);
     });

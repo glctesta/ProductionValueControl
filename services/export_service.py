@@ -141,6 +141,253 @@ class ExportService:
         buf.seek(0)
         return buf
 
+    def build_wip_workbook(self, wip_summary: List[dict], wip_details: List[dict], now: datetime) -> BytesIO:
+        wb = Workbook()
+        ws_main = wb.active
+        ws_main.title = 'Sintesi WIP'
+
+        # 1) Title + Subtitle
+        ws_main.merge_cells(start_row=1, start_column=1, end_row=1, end_column=11)
+        c_title = ws_main.cell(row=1, column=1, value="Sintesi Work In Progress (WIP)")
+        c_title.font = Font(name='Calibri', size=15, bold=True, color='FFFFFF')
+        c_title.fill = PatternFill('solid', fgColor=COL_TITLE)
+        c_title.alignment = _a_center()
+        ws_main.row_dimensions[1].height = 30
+
+        ws_main.merge_cells(start_row=2, start_column=1, end_row=2, end_column=11)
+        c_sub = ws_main.cell(row=2, column=1, value=f"Generato il {now.strftime('%d/%m/%Y %H:%M')} \u00b7 Stato attivo dei semilavorati in linea")
+        c_sub.font = Font(name='Calibri', size=10, italic=True, color='595959')
+        c_sub.alignment = Alignment(horizontal='right', vertical='center')
+
+        # 2) Note
+        self._write_wip_note(
+            ws_main,
+            start_row=4,
+            text=(
+                "Nota: Il WIP (Work In Progress) rappresenta il valore dei semilavorati in transito nella linea di produzione, "
+                "scansionati a partire dalla fase di PTH ma non ancora completati (fase finale 142). Lo stato 'FAIL' indica che "
+                "l'ultima scansione registrata per la scheda ha dato esito fallito. 'OK' indica che l'ultima scansione e' corretta."
+            )
+        )
+
+        # 3) Headers
+        header_row = 7
+        headers = [
+            'Order Number', 'Product Code', 'Product Name', 'Target Qty',
+            'Qty WIP OK', 'Qty WIP FAIL', 'Total WIP Qty',
+            'Prezzo Unit.', 'Valore WIP OK', 'Valore WIP FAIL', 'Valore WIP Totale'
+        ]
+        
+        # Scrive gli header
+        for idx, h in enumerate(headers, start=1):
+            c = ws_main.cell(row=header_row, column=idx, value=h)
+            c.font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+            c.fill = PatternFill('solid', fgColor=COL_HEADER)
+            c.alignment = _a_center(wrap=True)
+            c.border = BORDER_ALL
+        ws_main.row_dimensions[header_row].height = 30
+        ws_main.freeze_panes = ws_main.cell(row=header_row + 1, column=1).coordinate
+
+        # 4) Write Summary Rows
+        cur = header_row + 1
+        grand_ok = 0
+        grand_fail = 0
+        grand_total_qty = 0
+        grand_val_ok = 0.0
+        grand_val_fail = 0.0
+        grand_val_total = 0.0
+
+        for s in wip_summary:
+            qty_ok = int(s.get('QtyOK', 0))
+            qty_fail = int(s.get('QtyFAIL', 0))
+            total_qty = qty_ok + qty_fail
+            price = float(s.get('UnitPrice', 0.0))
+            val_ok = qty_ok * price
+            val_fail = qty_fail * price
+            val_total = total_qty * price
+
+            # Scrive i valori
+            ws_main.cell(row=cur, column=1, value=s.get('OrderNumber')).alignment = _a_center()
+            ws_main.cell(row=cur, column=2, value=s.get('ProductCode')).alignment = _a_center()
+            ws_main.cell(row=cur, column=3, value=s.get('ProductName')).alignment = _a_left(wrap=True)
+            
+            t_qty = s.get('TargetQty', 0)
+            ws_main.cell(row=cur, column=4, value=int(t_qty) if t_qty is not None else 0).number_format = INT_FMT
+            ws_main.cell(row=cur, column=4).alignment = _a_right()
+            
+            ws_main.cell(row=cur, column=5, value=qty_ok).number_format = INT_FMT
+            ws_main.cell(row=cur, column=5).alignment = _a_right()
+            
+            ws_main.cell(row=cur, column=6, value=qty_fail).number_format = INT_FMT
+            ws_main.cell(row=cur, column=6).alignment = _a_right()
+            
+            ws_main.cell(row=cur, column=7, value=total_qty).number_format = INT_FMT
+            ws_main.cell(row=cur, column=7).alignment = _a_right()
+            
+            p_cell = ws_main.cell(row=cur, column=8, value=price)
+            p_cell.number_format = CURRENCY_FMT
+            p_cell.alignment = _a_right()
+
+            vo_cell = ws_main.cell(row=cur, column=9, value=val_ok)
+            vo_cell.number_format = CURRENCY_FMT
+            vo_cell.alignment = _a_right()
+
+            vf_cell = ws_main.cell(row=cur, column=10, value=val_fail)
+            vf_cell.number_format = CURRENCY_FMT
+            vf_cell.alignment = _a_right()
+
+            vt_cell = ws_main.cell(row=cur, column=11, value=val_total)
+            vt_cell.number_format = CURRENCY_FMT
+            vt_cell.alignment = _a_right()
+
+            for col in range(1, 12):
+                cell = ws_main.cell(row=cur, column=col)
+                cell.font = Font(name='Calibri', size=10)
+                cell.border = BORDER_ALL
+
+            grand_ok += qty_ok
+            grand_fail += qty_fail
+            grand_total_qty += total_qty
+            grand_val_ok += val_ok
+            grand_val_fail += val_fail
+            grand_val_total += val_total
+            cur += 1
+
+        # Grand total
+        ws_main.merge_cells(start_row=cur, start_column=1, end_row=cur, end_column=3)
+        lbl_cell = ws_main.cell(row=cur, column=1, value='TOTALE WIP')
+        lbl_cell.font = Font(name='Calibri', size=11, bold=True)
+        lbl_cell.alignment = Alignment(horizontal='right', vertical='center', indent=1)
+        
+        for col in range(1, 4):
+            ws_main.cell(row=cur, column=col).fill = PatternFill('solid', fgColor=COL_TOTAL)
+            ws_main.cell(row=cur, column=col).border = BORDER_ALL
+
+        ws_main.cell(row=cur, column=4).fill = PatternFill('solid', fgColor=COL_TOTAL)
+        ws_main.cell(row=cur, column=4).border = BORDER_ALL
+
+        totals = [
+            (5, grand_ok, INT_FMT),
+            (6, grand_fail, INT_FMT),
+            (7, grand_total_qty, INT_FMT),
+            (8, None, None),
+            (9, grand_val_ok, CURRENCY_FMT),
+            (10, grand_val_fail, CURRENCY_FMT),
+            (11, grand_val_total, CURRENCY_FMT),
+        ]
+        for col, val, fmt in totals:
+            c = ws_main.cell(row=cur, column=col)
+            c.fill = PatternFill('solid', fgColor=COL_TOTAL)
+            c.border = BORDER_ALL
+            if val is not None:
+                c.value = val
+                c.font = Font(name='Calibri', size=11, bold=True)
+                c.alignment = _a_right()
+                if fmt:
+                    c.number_format = fmt
+
+        ws_main.row_dimensions[cur].height = 24
+        
+        # Column widths for main sheet
+        widths = [14, 16, 35, 14, 14, 14, 14, 14, 18, 18, 20]
+        for idx, w in enumerate(widths, 1):
+            ws_main.column_dimensions[get_column_letter(idx)].width = w
+
+        # Detail Tabs (one per active WIP order)
+        wip_details_by_order = {}
+        for d in wip_details:
+            order_number = d.get('OrderNumber')
+            if order_number not in wip_details_by_order:
+                wip_details_by_order[order_number] = []
+            wip_details_by_order[order_number].append(d)
+
+        for order_num, boards in wip_details_by_order.items():
+            sheet_title = str(order_num)[:30]
+            ws_detail = wb.create_sheet(title=sheet_title)
+            self._build_wip_detail_sheet(ws_detail, order_num, boards, now)
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf
+
+    def _build_wip_detail_sheet(self, ws: Worksheet, order_num: str, boards: List[dict], now: datetime) -> None:
+        # 1) Title + Subtitle
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5)
+        title = ws.cell(row=1, column=1, value=f"Dettaglio WIP Ordine {order_num}")
+        title.font = Font(name='Calibri', size=13, bold=True, color='FFFFFF')
+        title.fill = PatternFill('solid', fgColor=COL_TITLE)
+        title.alignment = _a_center()
+        ws.row_dimensions[1].height = 24
+
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=5)
+        sub = ws.cell(row=2, column=1, value=f"Totale schede in lavorazione: {len(boards)} \u00b7 Generato: {now.strftime('%d/%m/%Y %H:%M')}")
+        sub.font = Font(name='Calibri', size=10, italic=True, color='595959')
+        sub.alignment = Alignment(horizontal='right', vertical='center')
+
+        # 2) Headers
+        header_row = 4
+        headers = [
+            'Board ID (IDBoard)', 'Data/Ora Ultima Scansione', 
+            'Fase Corrente', 'Abbreviazione Fase', 'Stato'
+        ]
+        for idx, h in enumerate(headers, start=1):
+            c = ws.cell(row=header_row, column=idx, value=h)
+            c.font = Font(name='Calibri', size=10, bold=True, color='FFFFFF')
+            c.fill = PatternFill('solid', fgColor=COL_HEADER)
+            c.alignment = _a_center()
+            c.border = BORDER_ALL
+        ws.row_dimensions[header_row].height = 24
+        ws.freeze_panes = ws.cell(row=header_row + 1, column=1).coordinate
+
+        # 3) Data
+        cur = header_row + 1
+        for b in boards:
+            ws.cell(row=cur, column=1, value=b.get('IDBoard')).alignment = _a_center()
+            
+            scan_time = b.get('ScanTimeStart')
+            time_str = scan_time.strftime('%d/%m/%Y %H:%M:%S') if isinstance(scan_time, datetime) else str(scan_time)
+            ws.cell(row=cur, column=2, value=time_str).alignment = _a_center()
+            
+            ws.cell(row=cur, column=3, value=b.get('PhaseName')).alignment = _a_left()
+            ws.cell(row=cur, column=4, value=b.get('PhaseAbbreviation')).alignment = _a_center()
+            
+            is_pass = b.get('IsPass')
+            status_text = 'OK' if is_pass == 1 else 'FAIL'
+            status_cell = ws.cell(row=cur, column=5, value=status_text)
+            status_cell.alignment = _a_center()
+            
+            if is_pass == 1:
+                status_cell.fill = PatternFill('solid', fgColor='C6EFCE')
+                status_cell.font = Font(name='Calibri', size=10, bold=True, color='006100')
+            else:
+                status_cell.fill = PatternFill('solid', fgColor='FFC7CE')
+                status_cell.font = Font(name='Calibri', size=10, bold=True, color='9C0006')
+
+            for col in range(1, 5):
+                ws.cell(row=cur, column=col).font = Font(name='Calibri', size=10)
+                ws.cell(row=cur, column=col).border = BORDER_ALL
+            ws.cell(row=cur, column=5).border = BORDER_ALL
+            cur += 1
+
+        widths = [20, 24, 30, 16, 12]
+        for idx, w in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(idx)].width = w
+
+    def _write_wip_note(self, ws: Worksheet, start_row: int, text: str) -> None:
+        ws.merge_cells(
+            start_row=start_row, start_column=1,
+            end_row=start_row + 1, end_column=11,
+        )
+        c = ws.cell(row=start_row, column=1, value=text)
+        c.fill = PatternFill('solid', fgColor=COL_NOTE_BG)
+        thick = Side(style='medium', color=COL_NOTE_BORDER)
+        c.border = Border(left=thick, right=thick, top=thick, bottom=thick)
+        c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True, indent=1)
+        c.font = Font(name='Calibri', size=10, italic=True, color='333333')
+        ws.row_dimensions[start_row].height = 20
+        ws.row_dimensions[start_row + 1].height = 20
+
     # ------------------------------------------------------------- Main sheet
     def _build_main_sheet(
         self,
