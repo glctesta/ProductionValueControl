@@ -260,7 +260,7 @@ class SqlService:
         (ProductionDay, OrderNumber, ProductCode, ProductName, QtyOK, QtyFAIL)
         """
         query = """
-        WITH WipBoards AS (
+        WITH BoardEntry AS (
             SELECT 
                 S.IDBoard, 
                 OP.IDOrder,
@@ -272,41 +272,51 @@ class SqlService:
               AND S.IsPass = 1
               AND O.IsFinished = 0
               AND S.ScanTimeStart >= ?
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM Traceability_rs.dbo.Scannings S2
-                  INNER JOIN Traceability_rs.dbo.OrderPhases OP2 ON S2.IDOrderPhase = OP2.IDOrderPhase
-                  WHERE OP2.IDOrder = O.IDOrder
-                    AND OP2.IDPhase = ?
-                    AND S2.IDBoard = S.IDBoard
-                    AND S2.IsPass = 1
-              )
             GROUP BY S.IDBoard, OP.IDOrder
         ),
         LatestScans AS (
             SELECT 
-                wb.IDBoard,
-                wb.IDOrder,
+                be.IDBoard,
+                be.IDOrder,
                 s.IsPass,
-                ROW_NUMBER() OVER (PARTITION BY wb.IDBoard ORDER BY s.ScanTimeStart DESC, s.IDScan DESC) as rn
-            FROM WipBoards wb
-            INNER JOIN Traceability_rs.dbo.OrderPhases op ON wb.IDOrder = op.IDOrder
-            INNER JOIN Traceability_rs.dbo.Scannings s ON op.IDOrderPhase = s.IDOrderPhase AND wb.IDBoard = s.IDBoard
+                op.IDPhase,
+                op.IDOrderPhase,
+                s.ScanTimeStart,
+                ROW_NUMBER() OVER (PARTITION BY be.IDBoard ORDER BY s.ScanTimeStart DESC, s.IDScan DESC) as rn
+            FROM BoardEntry be
+            INNER JOIN Traceability_rs.dbo.OrderPhases op ON be.IDOrder = op.IDOrder
+            INNER JOIN Traceability_rs.dbo.Scannings s ON op.IDOrderPhase = s.IDOrderPhase AND be.IDBoard = s.IDBoard
         )
         SELECT
-            CAST(DATEADD(MINUTE, -450, wb.WipEntryTime) AS DATE) AS ProductionDay,
+            CAST(DATEADD(MINUTE, -450, be.WipEntryTime) AS DATE) AS ProductionDay,
             O.OrderNumber,
             P.ProductCode,
             P.ProductName,
             SUM(CASE WHEN ls.IsPass = 1 THEN 1 ELSE 0 END) AS QtyOK,
             SUM(CASE WHEN ls.IsPass = 0 THEN 1 ELSE 0 END) AS QtyFAIL
         FROM LatestScans ls
-        INNER JOIN WipBoards wb ON ls.IDBoard = wb.IDBoard
-        INNER JOIN Traceability_rs.dbo.Orders O ON wb.IDOrder = O.IDOrder
+        INNER JOIN BoardEntry be ON ls.IDBoard = be.IDBoard
+        INNER JOIN Traceability_rs.dbo.Orders O ON be.IDOrder = O.IDOrder
         INNER JOIN Traceability_rs.dbo.Products P ON O.IDProduct = P.IDProduct
         WHERE ls.rn = 1
+          AND NOT (
+              ls.IsPass = 1 AND (
+                  (EXISTS (
+                      SELECT 1 FROM Traceability_rs.dbo.OrderPhases OP_CHECK
+                      WHERE OP_CHECK.IDOrder = ls.IDOrder AND OP_CHECK.IDPhase = ?
+                  ) AND ls.IDPhase = ?)
+                  OR
+                  (NOT EXISTS (
+                      SELECT 1 FROM Traceability_rs.dbo.OrderPhases OP_CHECK
+                      WHERE OP_CHECK.IDOrder = ls.IDOrder AND OP_CHECK.IDPhase = ?
+                  ) AND ls.IDOrderPhase = (
+                      SELECT MAX(OP3.IDOrderPhase) FROM Traceability_rs.dbo.OrderPhases OP3
+                      WHERE OP3.IDOrder = ls.IDOrder
+                  ))
+              )
+          )
         GROUP BY
-            CAST(DATEADD(MINUTE, -450, wb.WipEntryTime) AS DATE),
+            CAST(DATEADD(MINUTE, -450, be.WipEntryTime) AS DATE),
             O.OrderNumber,
             P.ProductCode,
             P.ProductName
@@ -314,7 +324,7 @@ class SqlService:
         """
         conn = self.db.connect()
         with conn.cursor() as cursor:
-            cursor.execute(query, start_date_str, self.phase_id)
+            cursor.execute(query, start_date_str, self.phase_id, self.phase_id, self.phase_id)
             rows = cursor.fetchall()
 
         result = []
@@ -336,7 +346,7 @@ class SqlService:
         (OrderNumber, IDBoard, ScanTimeStart, PhaseName, PhaseAbbreviation, IsPass)
         """
         query = """
-        WITH WipBoards AS (
+        WITH BoardEntry AS (
             SELECT DISTINCT S.IDBoard, OP.IDOrder
             FROM Traceability_rs.dbo.Scannings S
             INNER JOIN Traceability_rs.dbo.OrderPhases OP ON S.IDOrderPhase = OP.IDOrderPhase
@@ -345,28 +355,21 @@ class SqlService:
               AND S.IsPass = 1
               AND O.IsFinished = 0
               AND S.ScanTimeStart >= ?
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM Traceability_rs.dbo.Scannings S2
-                  INNER JOIN Traceability_rs.dbo.OrderPhases OP2 ON S2.IDOrderPhase = OP2.IDOrderPhase
-                  WHERE OP2.IDOrder = O.IDOrder
-                    AND OP2.IDPhase = ?
-                    AND S2.IDBoard = S.IDBoard
-                    AND S2.IsPass = 1
-              )
         ),
         LatestScans AS (
             SELECT 
-                wb.IDBoard,
-                wb.IDOrder,
+                be.IDBoard,
+                be.IDOrder,
                 s.ScanTimeStart,
                 s.IsPass,
+                op.IDPhase,
+                op.IDOrderPhase,
                 p.PhaseName,
                 p.PhaseAbbreviation,
-                ROW_NUMBER() OVER (PARTITION BY wb.IDBoard ORDER BY s.ScanTimeStart DESC, s.IDScan DESC) as rn
-            FROM WipBoards wb
-            INNER JOIN Traceability_rs.dbo.OrderPhases op ON wb.IDOrder = op.IDOrder
-            INNER JOIN Traceability_rs.dbo.Scannings s ON op.IDOrderPhase = s.IDOrderPhase AND wb.IDBoard = s.IDBoard
+                ROW_NUMBER() OVER (PARTITION BY be.IDBoard ORDER BY s.ScanTimeStart DESC, s.IDScan DESC) as rn
+            FROM BoardEntry be
+            INNER JOIN Traceability_rs.dbo.OrderPhases op ON be.IDOrder = op.IDOrder
+            INNER JOIN Traceability_rs.dbo.Scannings s ON op.IDOrderPhase = s.IDOrderPhase AND be.IDBoard = s.IDBoard
             INNER JOIN Traceability_rs.dbo.Phases p ON op.IDPhase = p.IDPhase
         )
         SELECT
@@ -379,11 +382,27 @@ class SqlService:
         FROM LatestScans ls
         INNER JOIN Traceability_rs.dbo.Orders o ON ls.IDOrder = o.IDOrder
         WHERE ls.rn = 1
+          AND NOT (
+              ls.IsPass = 1 AND (
+                  (EXISTS (
+                      SELECT 1 FROM Traceability_rs.dbo.OrderPhases OP_CHECK
+                      WHERE OP_CHECK.IDOrder = ls.IDOrder AND OP_CHECK.IDPhase = ?
+                  ) AND ls.IDPhase = ?)
+                  OR
+                  (NOT EXISTS (
+                      SELECT 1 FROM Traceability_rs.dbo.OrderPhases OP_CHECK
+                      WHERE OP_CHECK.IDOrder = ls.IDOrder AND OP_CHECK.IDPhase = ?
+                  ) AND ls.IDOrderPhase = (
+                      SELECT MAX(OP3.IDOrderPhase) FROM Traceability_rs.dbo.OrderPhases OP3
+                      WHERE OP3.IDOrder = ls.IDOrder
+                  ))
+              )
+          )
         ORDER BY o.OrderNumber ASC, ls.ScanTimeStart DESC
         """
         conn = self.db.connect()
         with conn.cursor() as cursor:
-            cursor.execute(query, start_date_str, self.phase_id)
+            cursor.execute(query, start_date_str, self.phase_id, self.phase_id, self.phase_id)
             rows = cursor.fetchall()
 
         result = []

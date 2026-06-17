@@ -471,18 +471,36 @@ def run_wip_daily_report() -> bool:
         ytd_end_dt = datetime(prod_day.year, prod_day.month, 1, 7, 30, 0)
         ytd_completed_rows = sql_svc.get_ytd_completed_production(ytd_start_dt, ytd_end_dt)
         
-        ytd_start_value = 0.0
         ytd_orders = {r[0] for r in ytd_completed_rows}
+        ytd_details = sql_svc.get_orders_details_bulk(list(ytd_orders))
+        
         ytd_price_cache = {}
+        product_to_price = {}
+        
         for order in ytd_orders:
+            price = None
             if order in price_map:
-                ytd_price_cache[order] = price_map[order]
+                price = price_map[order]
             else:
                 fb = sql_svc.get_price_from_resetservices(order)
-                ytd_price_cache[order] = fb if fb is not None else 0.0
+                if fb is not None:
+                    price = fb
+            
+            if price is not None and price > 0:
+                ytd_price_cache[order] = price
+                p_code = ytd_details.get(order, {}).get('productCode')
+                if p_code:
+                    product_to_price[p_code] = price
 
+        ytd_start_value = 0.0
         for order, qty in ytd_completed_rows:
-            price = ytd_price_cache.get(order, 0.0)
+            price = ytd_price_cache.get(order)
+            if price is None:
+                p_code = ytd_details.get(order, {}).get('productCode')
+                if p_code in product_to_price:
+                    price = product_to_price[p_code]
+                else:
+                    price = 0.0
             ytd_start_value += qty * price
 
         ytd_total_value = ytd_start_value + metrics.get('monthValue', 0.0)
@@ -737,29 +755,46 @@ def api_wip():
         ytd_end_dt = datetime(prod_day.year, prod_day.month, 1, 7, 30, 0)
         ytd_completed_rows = sql_svc.get_ytd_completed_production(ytd_start_dt, ytd_end_dt)
         
-        ytd_start_value = 0.0
         ytd_orders = {r[0] for r in ytd_completed_rows}
+        ytd_details = sql_svc.get_orders_details_bulk(list(ytd_orders))
+        
         ytd_price_cache = {}
+        product_to_price = {}
+        
         for order in ytd_orders:
+            price = None
             if order in price_map:
-                ytd_price_cache[order] = price_map[order]
+                price = price_map[order]
             else:
                 fb = sql_svc.get_price_from_resetservices(order)
-                ytd_price_cache[order] = fb if fb is not None else 0.0
+                if fb is not None:
+                    price = fb
+            
+            if price is not None and price > 0:
+                ytd_price_cache[order] = price
+                p_code = ytd_details.get(order, {}).get('productCode')
+                if p_code:
+                    product_to_price[p_code] = price
 
+        ytd_start_value = 0.0
         for order, qty in ytd_completed_rows:
-            price = ytd_price_cache.get(order, 0.0)
+            price = ytd_price_cache.get(order)
+            if price is None:
+                p_code = ytd_details.get(order, {}).get('productCode')
+                if p_code in product_to_price:
+                    price = product_to_price[p_code]
+                else:
+                    price = 0.0
             ytd_start_value += qty * price
 
         # Ottieni le metriche del mese corrente per agganciare le progressioni
         metrics = metrics_svc.compute(now)
 
-        # Conta i giorni lavorativi YTD precedenti al mese in corso per il target YTD
-        ytd_working_days = 0
+        # Calcola il target YTD cumulato reale dei mesi precedenti
+        ytd_start_target = 0.0
         for m in range(1, prod_day.month):
-            ytd_working_days += len(cal_svc.working_days_in_month(prod_day.year, m))
-
-        ytd_start_target = ytd_working_days * metrics.get('dailyTarget', 0.0)
+            month_targets = target_svc.get_targets_for_month(prod_day.year, m)
+            ytd_start_target += sum(month_targets.values())
 
         # Costruisce i dati per il grafico inferiore YTD del WIP page
         target_ytd = [round(ytd_start_target + t, 2) for t in metrics['chart']['target']]
