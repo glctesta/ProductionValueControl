@@ -646,7 +646,7 @@ atexit.register(lambda: scheduler.shutdown(wait=False))
 
 @app.route('/')
 def index():
-    return render_template('index.html', refresh_minutes=config['refreshMinutes'])
+    return render_template('index.html', refresh_minutes=config['refreshMinutes'], rotation_seconds=config.get('rotationSeconds', 20))
 
 
 @app.route('/api/metrics')

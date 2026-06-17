@@ -7,7 +7,7 @@
     
     // View state
     let currentView = 'production'; // 'production' o 'wip'
-    const ROTATION_SECONDS = 20;
+    const ROTATION_SECONDS = parseInt(document.body.dataset.rotationSeconds || '20', 10);
     let secondsSinceRotation = 0;
 
     const eurFmt = new Intl.NumberFormat('it-IT', {
