@@ -30,3 +30,6 @@ Thumbs.db
 
 # Zip di deploy
 *.zip
+
+# Claude/Agentic worktrees
+.claude/
