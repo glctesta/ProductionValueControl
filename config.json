@@ -1,7 +1,7 @@
 {
   "dailyValue": 50000,
   "refreshMinutes": 60,
-  "excelDir": "T:\\D365 data",
+  "excelDir": "\\\\192.168.10.110\\InternalApplications\\D365 data",
   "excelSheet": "PR Master data From D365",
   "phaseId": 142,
   "productionDayStart": "07:30",

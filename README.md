@@ -52,11 +52,20 @@ Apri poi `http://localhost:5065` (o l'IP della macchina dall'intranet).
 
 ## Email ordini mancanti
 L'invio email ai destinatari di `traceability_rs.dbo.settings` (attributo
-`sys_value_missing_Order`) e' **disabilitato** per ora: l'app logga solo cosa
-invierebbe. Si attivera' riusando `email_connector.py` / `utils.py` in uno step
-successivo.
+`sys_value_missing_Order`) e' **attivo**. Flusso:
 
-Rate-limit: al massimo una mail per ciclo di refresh.
+- Query destinatari: `SqlService.get_missing_order_recipients()` (attributo
+  `sys_value_missing_Order`).
+- Costruzione corpo HTML (tabella ordini + KPI giornalieri/mensili):
+  `_build_missing_orders_email_html` in `app.py`.
+- Invio via SMTP relay: `services/email_service.py` (`EmailService.send`),
+  che riusa `email_connector.py` per le credenziali cifrate
+  (`email_credentials.enc` / `email_key.key`).
+
+Rate-limit: al massimo una mail per ciclo di refresh (una chiamata a
+`/api/metrics`). Inoltre l'email viene inviata solo se, rispetto alla
+notifica precedente, compaiono **ordini nuovi** nel set dei non valorizzabili;
+il set di ordini gia' notificati si resetta al cambio di giorno produttivo.
 
 ## API
 - `GET /` → dashboard HTML

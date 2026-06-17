@@ -237,15 +237,15 @@ class SqlService:
 
     def get_missing_order_recipients(self) -> List[str]:
         """
-        Legge 'sys_value_missing_Order' dalla tabella settings.
+        Legge 'Sys_Email_Value_Report' dalla tabella settings.
         """
-        return self._get_settings_emails('sys_value_missing_Order')
+        return self._get_settings_emails('Sys_Email_Value_Report')
 
     def get_daily_report_recipients(self) -> List[str]:
         """
-        Legge 'Sys_email_production_intern' per il report giornaliero interno.
+        Legge 'Sys_Email_Value_Report' per il report giornaliero interno.
         """
-        return self._get_settings_emails('Sys_email_production_intern')
+        return self._get_settings_emails('Sys_Email_Value_Report')
 
     def _get_settings_emails(self, attribute: str) -> List[str]:
         query = """
