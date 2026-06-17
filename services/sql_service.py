@@ -431,28 +431,9 @@ class SqlService:
         return result
 
     def _get_settings_emails(self, attribute: str) -> List[str]:
-        query = """
-        SELECT [VALUE]
-        FROM traceability_rs.dbo.settings
-        WHERE atribute = ?
-        """
+        import utils
         try:
-            conn = self.db.connect()
-            with conn.cursor() as cursor:
-                cursor.execute(query, attribute)
-                rows = cursor.fetchall()
+            return utils.get_email_recipients(self.db.connect(), attribute)
         except Exception as e:
-            logger.error(f"Errore recupero destinatari per '{attribute}': {e}")
+            logger.error(f"Errore recupero destinatari per '{attribute}' tramite utils: {e}")
             return []
-
-        emails: List[str] = []
-        for row in rows:
-            val = row[0]
-            if not val:
-                continue
-            chunks = val.replace(';', ',').split(',')
-            for e in chunks:
-                e = e.strip()
-                if e and '@' in e:
-                    emails.append(e)
-        return emails

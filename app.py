@@ -363,7 +363,7 @@ def run_daily_report() -> bool:
             xlsx_bytes = b''
             xlsx_filename = ''
 
-        subject = f"Production Value \u2014 Report {prod_day.strftime('%d/%m/%Y')}"
+        subject = f"Production Value - Report {prod_day.strftime('%d/%m/%Y')}"
         html_body = _build_daily_report_html(metrics, prod_day)
 
         inline_images = {'dashboard_snapshot': png_bytes} if png_bytes else None
@@ -570,7 +570,7 @@ def run_wip_daily_report() -> bool:
         </html>
         """
 
-        subject = f"[Production WIP] Daily Report \u2014 {prod_day.strftime('%d/%m/%Y')}"
+        subject = f"[Production WIP] Daily Report - {prod_day.strftime('%d/%m/%Y')}"
         attachments = [(
             xlsx_filename,
             xlsx_bytes,
@@ -604,15 +604,15 @@ def _start_scheduler() -> BackgroundScheduler:
     )
     sched.add_job(
         run_wip_daily_report,
-        CronTrigger(day_of_week='tue-sat', hour=7, minute=40),
+        CronTrigger(day_of_week='tue-sun', hour=7, minute=40),
         id='daily_wip_report_0740',
-        name='Daily WIP report (07:40, Tue-Sat)',
+        name='Daily WIP report (07:40, Tue-Sun)',
         replace_existing=True,
         misfire_grace_time=60 * 60,
         coalesce=True,
     )
     sched.start()
-    logger.info("Scheduler avviato: job 'daily_report_0735' alle 07:35 e 'daily_wip_report_0740' alle 07:40 (Mar-Sab) ora locale.")
+    logger.info("Scheduler avviato: job 'daily_report_0735' alle 07:35 e 'daily_wip_report_0740' alle 07:40 (Mar-Dom) ora locale.")
     return sched
 
 
