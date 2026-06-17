@@ -18,6 +18,7 @@ from services.export_service import ExportService
 from services.metrics_service import MetricsService
 from services.report_service import ReportService
 from services.sql_service import SqlService
+from services.target_service import TargetService
 
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / 'config.json'
@@ -52,7 +53,12 @@ sql_svc = SqlService(
     production_start=config.get('productionDayStart', '07:30'),
 )
 cal_svc = CalendarService(country=config.get('country', 'RO'))
-metrics_svc = MetricsService(excel_svc, sql_svc, cal_svc, daily_target=config['dailyValue'])
+target_svc = TargetService(
+    db_connection=db,
+    calendar_service=cal_svc,
+    fallback_daily_value=config['dailyValue'],
+)
+metrics_svc = MetricsService(excel_svc, sql_svc, cal_svc, target_service=target_svc)
 export_svc = ExportService(excel_svc, sql_svc, metrics_svc)
 email_svc = EmailService(BASE_DIR)
 report_svc = ReportService()
@@ -891,6 +897,142 @@ def logo():
 @app.route('/healthz')
 def healthz():
     return jsonify({'ok': True, 'now': datetime.now().isoformat(timespec='seconds')})
+
+
+@app.route('/api/targets')
+def api_targets_get():
+    """
+    Ritorna i target pianificati per il mese richiesto + fallback.
+    Query params: ?year=YYYY&month=MM (default: mese corrente).
+    """
+    from flask import request
+    try:
+        now = datetime.now()
+        year = int(request.args.get('year', now.year))
+        month = int(request.args.get('month', now.month))
+        if not (2020 <= year <= 2100) or not (1 <= month <= 12):
+            return jsonify({'error': 'year/month fuori range'}), 400
+
+        working_days = cal_svc.working_days_in_month(year, month)
+        raw = target_svc.get_raw_targets_for_month(year, month)
+
+        targets_out = {}
+        for wd in working_days:
+            iso = wd.isoformat()
+            if wd in raw:
+                targets_out[iso] = {
+                    'value': raw[wd]['value'],
+                    'notes': raw[wd].get('notes'),
+                    'planned': True,
+                }
+            else:
+                targets_out[iso] = {
+                    'value': config['dailyValue'],
+                    'notes': None,
+                    'planned': False,
+                }
+
+        return jsonify({
+            'year': year,
+            'month': month,
+            'workingDays': [wd.isoformat() for wd in working_days],
+            'targets': targets_out,
+            'fallback': config['dailyValue'],
+        })
+    except Exception as e:
+        logger.exception("Errore GET /api/targets")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/targets', methods=['POST'])
+def api_targets_post():
+    """
+    Upsert batch di target. Body JSON:
+      { "year": 2026, "month": 5,
+        "rows": [{"planDate": "2026-05-04", "dailyValue": 55000, "notes": "..."}] }
+    """
+    from flask import request
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        year = int(payload.get('year', 0))
+        month = int(payload.get('month', 0))
+        rows = payload.get('rows', [])
+
+        if not (2020 <= year <= 2100) or not (1 <= month <= 12):
+            return jsonify({'error': 'year/month fuori range'}), 400
+        if not isinstance(rows, list):
+            return jsonify({'error': 'rows deve essere una lista'}), 400
+
+        working_days = set(cal_svc.working_days_in_month(year, month))
+        cleaned = []
+        for r in rows:
+            try:
+                d = date.fromisoformat(str(r['planDate']))
+            except (KeyError, ValueError, TypeError):
+                return jsonify({'error': f"planDate non valido: {r}"}), 400
+            if d.year != year or d.month != month:
+                return jsonify({'error': f"planDate {d} fuori dal mese richiesto"}), 400
+            if d not in working_days:
+                return jsonify({'error': f"planDate {d} non e' un giorno lavorativo"}), 400
+            try:
+                value = float(r['dailyValue'])
+            except (KeyError, ValueError, TypeError):
+                return jsonify({'error': f"dailyValue non valido per {d}"}), 400
+            if not (0 < value <= 1_000_000):
+                return jsonify({'error': f"dailyValue {value} fuori range (0, 1.000.000]"}), 400
+            notes = r.get('notes')
+            if notes is not None:
+                notes = str(notes)[:255]
+            cleaned.append({'planDate': d, 'dailyValue': value, 'notes': notes})
+
+        result = target_svc.upsert_targets(cleaned)
+        failed_iso = [d.isoformat() for d in result['failed']]
+        return jsonify({'ok': True, 'affected': result['affected'], 'failed': failed_iso})
+    except Exception as e:
+        logger.exception("Errore POST /api/targets")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/targets/<date_iso>', methods=['DELETE'])
+def api_targets_delete(date_iso: str):
+    """Rimuove la pianificazione di un singolo giorno."""
+    try:
+        d = date.fromisoformat(date_iso)
+    except ValueError:
+        return jsonify({'error': 'date non valida (atteso YYYY-MM-DD)'}), 400
+
+    try:
+        removed = target_svc.delete_target(d)
+        return jsonify({'ok': True, 'removed': removed})
+    except Exception as e:
+        logger.exception(f"Errore DELETE /api/targets/{date_iso}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/targets/copy-previous-month', methods=['POST'])
+def api_targets_copy_previous_month():
+    """
+    Copia la pianificazione del mese precedente sui giorni lavorativi del mese target.
+    Body JSON: { "year": 2026, "month": 6 }
+    """
+    from flask import request
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        year = int(payload.get('year', 0))
+        month = int(payload.get('month', 0))
+        if not (2020 <= year <= 2100) or not (1 <= month <= 12):
+            return jsonify({'error': 'year/month fuori range'}), 400
+
+        copied = target_svc.copy_from_previous_month(year, month)
+        return jsonify({'ok': True, 'copied': copied})
+    except Exception as e:
+        logger.exception("Errore POST /api/targets/copy-previous-month")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/targets')
+def admin_targets():
+    return render_template('admin_targets.html')
 
 
 if __name__ == '__main__':

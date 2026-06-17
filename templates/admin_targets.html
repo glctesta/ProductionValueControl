@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="utf-8" />
+    <title>ProductionValue — Pianificazione Target</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin_targets.css') }}" />
+</head>
+<body>
+    <header class="admin-header">
+        <a class="back-link" href="/">&larr; Dashboard</a>
+        <h1>Pianificazione Target Giornalieri</h1>
+    </header>
+
+    <section class="controls">
+        <label>Mese:
+            <select id="month-select"></select>
+        </label>
+        <label>Anno:
+            <select id="year-select"></select>
+        </label>
+        <button id="btn-load" type="button">Carica</button>
+        <span class="fallback-info">
+            Valore di default: <strong id="fallback-value">—</strong>
+        </span>
+    </section>
+
+    <section class="bulk-tools">
+        <label>Applica a tutti i vuoti:
+            <input id="bulk-value" type="number" min="1" max="1000000" step="1" />
+        </label>
+        <button id="btn-bulk" type="button">Applica</button>
+        <button id="btn-copy-prev" type="button">Copia dal mese precedente</button>
+    </section>
+
+    <section class="grid-wrap">
+        <table class="targets-grid">
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Giorno</th>
+                    <th>Target (€)</th>
+                    <th>Note</th>
+                </tr>
+            </thead>
+            <tbody id="targets-body">
+                <tr><td colspan="4" class="placeholder">Carica un mese per iniziare.</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section class="totals">
+        Totale mensile pianificato: <strong id="month-total">—</strong>
+    </section>
+
+    <section class="actions">
+        <button id="btn-save" type="button" class="primary">Salva mese</button>
+        <button id="btn-cancel" type="button">Annulla</button>
+    </section>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="{{ url_for('static', filename='js/admin_targets.js') }}"></script>
+</body>
+</html>
