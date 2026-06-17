@@ -295,7 +295,7 @@ class SqlService:
             SUM(CASE WHEN ls.IsPass = 1 THEN 1 ELSE 0 END) AS QtyOK,
             SUM(CASE WHEN ls.IsPass = 0 THEN 1 ELSE 0 END) AS QtyFAIL
         FROM LatestScans ls
-        INNER JOIN BoardEntry be ON ls.IDBoard = be.IDBoard
+        INNER JOIN BoardEntry be ON ls.IDBoard = be.IDBoard AND ls.IDOrder = be.IDOrder
         INNER JOIN Traceability_rs.dbo.Orders O ON be.IDOrder = O.IDOrder
         INNER JOIN Traceability_rs.dbo.Products P ON O.IDProduct = P.IDProduct
         WHERE ls.rn = 1
