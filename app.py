@@ -1005,7 +1005,12 @@ init_wip_cache_async()
 
 @app.route('/')
 def index():
-    return render_template('index.html', refresh_minutes=config['refreshMinutes'], rotation_seconds=config.get('rotationSeconds', 20))
+    return render_template(
+        'index.html',
+        refresh_minutes=config['refreshMinutes'],
+        rotation_seconds=config.get('rotationSeconds', 20),
+        rotation_pause_minutes=config.get('rotationPauseMinutes', 30)
+    )
 
 
 @app.route('/api/metrics')

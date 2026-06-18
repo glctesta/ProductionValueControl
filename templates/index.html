@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
-<body data-refresh-minutes="{{ refresh_minutes }}" data-rotation-seconds="{{ rotation_seconds }}">
+<body data-refresh-minutes="{{ refresh_minutes }}" data-rotation-seconds="{{ rotation_seconds }}" data-rotation-pause-minutes="{{ rotation_pause_minutes }}">
     <div id="dashboard">
         <header id="header">
             <div id="kpis-container">
@@ -75,23 +75,32 @@
                 </div>
             </div>
             <div id="header-right">
-                <div id="warning-star" class="hidden" title="Alcuni ordini mancano dal file Excel">&#11088;</div>
-                <div id="clock">
-                    <div id="clock-time">--:--:--</div>
-                    <div id="clock-date">--/--/----</div>
+                <div class="header-top-row">
+                    <div id="warning-star" class="hidden" title="Alcuni ordini mancano dal file Excel">&#11088;</div>
+                    <div id="clock">
+                        <div id="clock-time">--:--:--</div>
+                        <div id="clock-date">--/--/----</div>
+                    </div>
+                    <img id="logo" src="/logo.png" alt="Logo">
                 </div>
                 <div id="refresh-info">
-                    <div class="refresh-label">Prossimo refresh</div>
-                    <div class="refresh-countdown"><span id="countdown">--</span> min</div>
+                    <div class="refresh-countdown-container">
+                        <span class="refresh-label">Prossimo refresh:</span>
+                        <span class="refresh-countdown"><span id="countdown">--</span> min</span>
+                    </div>
                     <div class="header-buttons">
-                        <button id="toggle-view-btn" type="button">Vai a WIP</button>
-                        <button id="refresh-btn" type="button">Refresh</button>
-                        <button id="export-btn" type="button" title="Scarica report Excel del mese corrente">Export Excel</button>
-                        <button id="export-wip-btn" type="button" class="hidden" title="Scarica report Excel del WIP">Export WIP</button>
-                        <a id="admin-targets-link" href="/admin/targets" title="Pianifica i target giornalieri" style="display:inline-block;padding:6px 12px;border:1px solid rgba(255,255,255,0.4);border-radius:6px;color:white;text-decoration:none;font-size:13px;background:rgba(0,0,0,0.1);">Pianifica target</a>
+                        <div class="button-row">
+                            <button id="toggle-view-btn" type="button">Vai a WIP</button>
+                            <button id="pause-rotation-btn" type="button">Auto-swap: Attivo</button>
+                        </div>
+                        <div class="button-row">
+                            <button id="refresh-btn" type="button">Refresh</button>
+                            <button id="export-btn" type="button" title="Scarica report Excel del mese corrente">Export Excel</button>
+                            <button id="export-wip-btn" type="button" class="hidden" title="Scarica report Excel del WIP">Export WIP</button>
+                            <a id="admin-targets-link" href="/admin/targets" title="Pianifica i target giornalieri">Pianifica target</a>
+                        </div>
                     </div>
                 </div>
-                <img id="logo" src="/logo.png" alt="Logo">
             </div>
         </header>
 

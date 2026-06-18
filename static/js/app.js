@@ -11,6 +11,11 @@
     const ROTATION_SECONDS = parseInt(document.body.dataset.rotationSeconds || '20', 10);
     let secondsSinceRotation = 0;
 
+    // Pause auto-rotation state
+    let rotationPaused = false;
+    let pauseSecondsRemaining = 0;
+    const PAUSE_MINUTES = parseInt(document.body.dataset.rotationPauseMinutes || '30', 10);
+
     const eurFmt = new Intl.NumberFormat('it-IT', {
         style: 'currency',
         currency: 'EUR',
@@ -48,10 +53,22 @@
             }
 
             // 2. Gestione Rotazione Automatica (20 secondi)
-            secondsSinceRotation++;
-            if (secondsSinceRotation >= ROTATION_SECONDS) {
-                secondsSinceRotation = 0;
-                toggleView();
+            if (rotationPaused) {
+                if (pauseSecondsRemaining > 0) {
+                    pauseSecondsRemaining--;
+                    updatePauseButton();
+                    if (pauseSecondsRemaining <= 0) {
+                        rotationPaused = false;
+                        secondsSinceRotation = 0;
+                        updatePauseButton();
+                    }
+                }
+            } else {
+                secondsSinceRotation++;
+                if (secondsSinceRotation >= ROTATION_SECONDS) {
+                    secondsSinceRotation = 0;
+                    toggleView();
+                }
             }
         }, 1000);
     }
@@ -638,6 +655,40 @@
 
             loadWipMetrics();
         }
+    }
+
+    function updatePauseButton() {
+        const pauseBtn = document.getElementById('pause-rotation-btn');
+        if (!pauseBtn) return;
+        
+        if (rotationPaused) {
+            pauseBtn.className = 'btn-rotate-paused';
+            const mins = Math.floor(pauseSecondsRemaining / 60);
+            const secs = pauseSecondsRemaining % 60;
+            pauseBtn.textContent = `Auto-swap: Pausa (${pad(mins)}:${pad(secs)})`;
+        } else {
+            pauseBtn.className = 'btn-rotate-active';
+            pauseBtn.textContent = 'Auto-swap: Attivo';
+        }
+    }
+
+    function togglePauseRotation() {
+        rotationPaused = !rotationPaused;
+        if (rotationPaused) {
+            pauseSecondsRemaining = PAUSE_MINUTES * 60;
+        } else {
+            pauseSecondsRemaining = 0;
+            secondsSinceRotation = 0;
+        }
+        updatePauseButton();
+    }
+
+    // Initialize pause button state
+    updatePauseButton();
+
+    const pauseBtn = document.getElementById('pause-rotation-btn');
+    if (pauseBtn) {
+        pauseBtn.addEventListener('click', togglePauseRotation);
     }
 
     // Wiring up view toggling

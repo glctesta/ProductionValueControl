@@ -2,6 +2,7 @@
   "dailyValue": 50000,
   "refreshMinutes": 30,
   "rotationSeconds": 30,
+  "rotationPauseMinutes": 30,
   "excelDir": "\\\\192.168.10.110\\InternalApplications\\D365 data",
   "excelSheet": "PR Master data From D365",
   "phaseId": 142,
