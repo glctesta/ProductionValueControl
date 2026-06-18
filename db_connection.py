@@ -1,16 +1,32 @@
 # db_connection.py
 import pyodbc
+import threading
 
 
 class DatabaseConnection:
     def __init__(self, config_manager):
         self.config_manager = config_manager
-        self.connection = None
+        self._local = threading.local()
+
+    @property
+    def connection(self):
+        return getattr(self._local, 'connection', None)
+
+    @connection.setter
+    def connection(self, value):
+        self._local.connection = value
 
     def connect(self):
         """Crea una connessione al database usando le credenziali crittografate"""
-        if self.connection is not None:
-            return self.connection
+        conn = self.connection
+        if conn is not None:
+            try:
+                # Se la connessione è aperta, la riutilizziamo
+                if not conn.closed:
+                    return conn
+            except Exception:
+                pass
+            self.connection = None
 
         config = self.config_manager.load_config()
 
@@ -33,8 +49,6 @@ class DatabaseConnection:
         if driver is None:
             raise Exception("Nessun driver SQL Server trovato. Installa un driver ODBC per SQL Server.")
 
-        #print(f"Utilizzo del driver: {driver}")
-
         conn_str = (
             f"DRIVER={{{driver}}};"
             f"SERVER={config['server']};"
@@ -45,14 +59,15 @@ class DatabaseConnection:
             "TrustServerCertificate=yes;"
             "Encrypt=yes;"
             "Connection Timeout=30;"
-            "Mars_Connection=yes;"  # Aggiunto per gestire meglio le connessioni multiple
+            "Mars_Connection=yes;"  # Gestione connessioni multiple
         )
 
         try:
-            self.connection = pyodbc.connect(conn_str)
-            self.connection.autocommit = True  # Aggiunto per evitare problemi di transazioni pendenti
+            conn = pyodbc.connect(conn_str)
+            conn.autocommit = True  # Evita transazioni pendenti
+            self.connection = conn
             print("Connessione stabilita con successo!")
-            return self.connection
+            return conn
         except pyodbc.Error as e:
             print(f"Errore durante la connessione: {str(e)}")
             raise
@@ -60,9 +75,13 @@ class DatabaseConnection:
     def disconnect(self):
         """Chiude la connessione al database"""
         try:
-            if self.connection:
-                if not self.connection.closed:
-                    self.connection.close()
+            conn = self.connection
+            if conn:
+                try:
+                    if not conn.closed:
+                        conn.close()
+                except Exception:
+                    pass
                 self.connection = None
         except Exception as e:
             print(f"Errore durante la chiusura della connessione: {str(e)}")
@@ -72,3 +91,4 @@ class DatabaseConnection:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.disconnect()
+
