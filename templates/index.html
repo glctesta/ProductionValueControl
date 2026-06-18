@@ -152,27 +152,33 @@
                     </div>
                 </div>
 
-                <!-- Sezione Grafico Bottom (YTD rolling del mese corrente) -->
+                <!-- Sezione Grafico Bottom (Doppio Grafico in Valore) -->
                 <div id="wip-chart-wrapper">
-                    <h3>Andamento YTD (Cumulativo da Inizio Anno sul Mese Corrente)</h3>
-                    <div id="wip-chart-container">
-                        <canvas id="chart-wip"></canvas>
+                    <div class="wip-dual-charts-container">
+                        <div class="wip-chart-half">
+                            <h3>Andamento Mensile YTD (€)</h3>
+                            <div id="wip-monthly-chart-container">
+                                <canvas id="chart-wip-monthly"></canvas>
+                            </div>
+                        </div>
+                        <div class="wip-chart-half">
+                            <h3>Dettaglio Giornaliero del Mese (€)</h3>
+                            <div id="wip-daily-chart-container">
+                                <canvas id="chart-wip-daily"></canvas>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <footer id="legend-wip">
                 <div class="legend-item">
-                    <span class="legend-color" style="background:#4fc3f7"></span>
-                    Target YTD (dal 1° Gennaio sul mese in corso)
-                </div>
-                <div class="legend-item">
-                    <span class="legend-color" style="background:#ffb74d"></span>
-                    Media YTD (cumulata)
-                </div>
-                <div class="legend-item">
                     <span class="legend-color" style="background:#81c784"></span>
-                    Rolling YTD (cumulato reale da inizio anno sul mese in corso)
+                    WIP Valore OK (Schede conformi in produzione)
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background:#ff5252"></span>
+                    WIP Valore FAIL (Schede in scarto/riparazione)
                 </div>
                 <div class="legend-item legend-meta">
                     <span id="wip-source-info"></span>

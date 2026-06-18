@@ -2,6 +2,9 @@ import atexit
 import json
 import logging
 import sys
+import time
+import threading
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -615,6 +618,352 @@ def run_wip_daily_report() -> bool:
         return False
 
 
+WIP_CACHE_DATA = None
+
+def compute_entire_wip_data():
+    logger.info("Avvio calcolo completo dei dati WIP (tabelle + grafici)...")
+    start_time = time.time()
+    
+    # 1. Carica i prezzi
+    price_map = excel_svc.load_price_map()
+    
+    # 2. Carica i dati delle schede in WIP dal database
+    start_date_str = "2026-01-01"
+    wip_rows = sql_svc.get_wip_by_day(start_date_str)
+    
+    # Pre-resolve prices
+    unique_orders = {r[1] for r in wip_rows}
+    sql_price_cache = {}
+    for order in unique_orders:
+        if order not in price_map:
+            fb = sql_svc.get_price_from_resetservices(order)
+            sql_price_cache[order] = fb if fb is not None else 0.0
+
+    def get_price(o: str) -> float:
+        return price_map[o] if o in price_map else sql_price_cache.get(o, 0.0)
+
+    # Raggruppamento per giorno di ingresso
+    day_aggregation = {}
+    global_qty_ok = 0
+    global_qty_fail = 0
+    global_val_ok = 0.0
+    global_val_fail = 0.0
+
+    for r in wip_rows:
+        day, order, p_code, p_name, qty_ok, qty_fail = r
+        price = get_price(order)
+        val_ok = qty_ok * price
+        val_fail = qty_fail * price
+        
+        day_str = day.isoformat()
+        if day_str not in day_aggregation:
+            day_aggregation[day_str] = {
+                'ProductionDay': day_str,
+                'QtyOK': 0,
+                'QtyFAIL': 0,
+                'ValueOK': 0.0,
+                'ValueFAIL': 0.0,
+                'Orders': []
+            }
+        
+        day_aggregation[day_str]['QtyOK'] += qty_ok
+        day_aggregation[day_str]['QtyFAIL'] += qty_fail
+        day_aggregation[day_str]['ValueOK'] += val_ok
+        day_aggregation[day_str]['ValueFAIL'] += val_fail
+        day_aggregation[day_str]['Orders'].append({
+            'OrderNumber': order,
+            'ProductCode': p_code,
+            'ProductName': p_name,
+            'QtyOK': qty_ok,
+            'QtyFAIL': qty_fail,
+            'UnitPrice': price,
+            'ValueOK': val_ok,
+            'ValueFAIL': val_fail,
+            'TotalValue': val_ok + val_fail
+        })
+
+        global_qty_ok += qty_ok
+        global_qty_fail += qty_fail
+        global_val_ok += val_ok
+        global_val_fail += val_fail
+
+    # Tabella ordinata dal più recente al meno recente
+    sorted_days = sorted(day_aggregation.values(), key=lambda x: x['ProductionDay'], reverse=True)
+
+    # 3. Calcola la timeline storica di andamento per i grafici
+    phase_id = config.get('phaseId', 142)
+    
+    query_boards = """
+    WITH BoardEntry AS (
+        SELECT 
+            S.IDBoard, 
+            OP.IDOrder,
+            MIN(S.ScanTimeStart) AS WipEntryTime
+        FROM Traceability_rs.dbo.Scannings S
+        INNER JOIN Traceability_rs.dbo.OrderPhases OP ON S.IDOrderPhase = OP.IDOrderPhase
+        INNER JOIN Traceability_rs.dbo.Orders O ON OP.IDOrder = O.IDOrder
+        WHERE OP.IDPhase IN (3, 4, 141)
+          AND S.IsPass = 1
+          AND O.IsFinished = 0
+          AND S.ScanTimeStart >= ?
+        GROUP BY S.IDBoard, OP.IDOrder
+    ),
+    OrderCompletionPhase AS (
+        SELECT OP.IDOrder, OP.IDPhase, OP.IDOrderPhase
+        FROM Traceability_rs.dbo.OrderPhases OP
+        WHERE (
+            (EXISTS (
+                SELECT 1 FROM Traceability_rs.dbo.OrderPhases OP_CHECK 
+                WHERE OP_CHECK.IDOrder = OP.IDOrder AND OP_CHECK.IDPhase = ?
+            ) AND OP.IDPhase = ?)
+            OR
+            (NOT EXISTS (
+                SELECT 1 FROM Traceability_rs.dbo.OrderPhases OP_CHECK 
+                WHERE OP_CHECK.IDOrder = OP.IDOrder AND OP_CHECK.IDPhase = ?
+            ) AND OP.IDOrderPhase = (
+                SELECT MAX(OP3.IDOrderPhase) FROM Traceability_rs.dbo.OrderPhases OP3 
+                WHERE OP3.IDOrder = OP.IDOrder
+            ))
+        )
+    ),
+    BoardCompletion AS (
+        SELECT 
+            be.IDBoard,
+            be.IDOrder,
+            MIN(s.ScanTimeStart) AS CompletionTime
+        FROM BoardEntry be
+        INNER JOIN OrderCompletionPhase ocp ON be.IDOrder = ocp.IDOrder
+        INNER JOIN Traceability_rs.dbo.Scannings s ON ocp.IDOrderPhase = s.IDOrderPhase AND be.IDBoard = s.IDBoard
+        WHERE s.IsPass = 1
+        GROUP BY be.IDBoard, be.IDOrder
+    )
+    SELECT 
+        be.IDBoard,
+        be.WipEntryTime,
+        bc.CompletionTime,
+        O.OrderNumber
+    FROM BoardEntry be
+    INNER JOIN Traceability_rs.dbo.Orders O ON be.IDOrder = O.IDOrder
+    LEFT JOIN BoardCompletion bc ON be.IDBoard = bc.IDBoard AND be.IDOrder = bc.IDOrder
+    """
+    
+    conn = db.connect()
+    with conn.cursor() as cursor:
+        cursor.execute(query_boards, start_date_str, phase_id, phase_id, phase_id)
+        boards_rows = cursor.fetchall()
+        
+        query_scans = """
+        SELECT 
+            S.IDBoard,
+            S.ScanTimeStart,
+            S.IsPass
+        FROM Traceability_rs.dbo.Scannings S
+        INNER JOIN Traceability_rs.dbo.OrderPhases OP ON S.IDOrderPhase = OP.IDOrderPhase
+        INNER JOIN Traceability_rs.dbo.Orders O ON OP.IDOrder = O.IDOrder
+        WHERE O.IsFinished = 0
+          AND S.ScanTimeStart >= ?
+        ORDER BY S.IDBoard, S.ScanTimeStart, S.IDScan
+        """
+        cursor.execute(query_scans, start_date_str)
+        scans_rows = cursor.fetchall()
+        
+    conn.close()
+    
+    # Pre-resolve price fallback per la query storica
+    unique_historical_orders = {r[3] for r in boards_rows}
+    for o in unique_historical_orders:
+        if o not in price_map and o not in sql_price_cache:
+            fb = sql_svc.get_price_from_resetservices(o)
+            sql_price_cache[o] = fb if fb is not None else 0.0
+
+    shift_min = sql_svc.production_shift_minutes
+    
+    def to_prod_date(dt: datetime) -> date:
+        if dt is None:
+            return None
+        return (dt - timedelta(minutes=shift_min)).date()
+        
+    scans_by_board = defaultdict(list)
+    for board_id, scan_time, is_pass in scans_rows:
+        scans_by_board[board_id].append((scan_time, is_pass))
+        
+    start_date = date(2026, 1, 1)
+    end_date = date.today()
+    delta_days = (end_date - start_date).days + 1
+    dates = [start_date + timedelta(days=i) for i in range(delta_days)]
+    date_to_index = {d: i for i, d in enumerate(dates)}
+    
+    delta_qty_ok = [0] * delta_days
+    delta_qty_fail = [0] * delta_days
+    delta_val_ok = [0.0] * delta_days
+    delta_val_fail = [0.0] * delta_days
+    
+    future_date = datetime(2099, 12, 31)
+    
+    for board_id, entry_time, completion_time, order_num in boards_rows:
+        price = get_price(order_num)
+        entry_day = to_prod_date(entry_time)
+        completion_day = to_prod_date(completion_time) if completion_time else None
+        
+        board_scans = scans_by_board.get(board_id, [])
+        fail_intervals = []
+        is_fail = False
+        fail_start = None
+        
+        for scan_time, is_pass in board_scans:
+            if scan_time < entry_time:
+                continue
+            if completion_time and scan_time > completion_time:
+                continue
+                
+            if not is_pass:
+                if not is_fail:
+                    is_fail = True
+                    fail_start = scan_time
+            else:
+                if is_fail:
+                    is_fail = False
+                    fail_intervals.append((fail_start, scan_time))
+                    fail_start = None
+                    
+        if is_fail and fail_start:
+            fail_intervals.append((fail_start, completion_time if completion_time else future_date))
+            
+        if entry_day in date_to_index:
+            idx = date_to_index[entry_day]
+            delta_qty_ok[idx] += 1
+            delta_val_ok[idx] += price
+            
+        for f_start, f_end in fail_intervals:
+            f_start_day = to_prod_date(f_start)
+            f_end_day = to_prod_date(f_end)
+            
+            if f_start_day in date_to_index:
+                idx = date_to_index[f_start_day]
+                delta_qty_ok[idx] -= 1
+                delta_val_ok[idx] -= price
+                delta_qty_fail[idx] += 1
+                delta_val_fail[idx] += price
+                
+            if f_end_day in date_to_index:
+                idx = date_to_index[f_end_day]
+                delta_qty_fail[idx] -= 1
+                delta_val_fail[idx] -= price
+                delta_qty_ok[idx] += 1
+                delta_val_ok[idx] += price
+                
+        if completion_day and completion_day in date_to_index:
+            idx = date_to_index[completion_day]
+            if is_fail:
+                delta_qty_fail[idx] -= 1
+                delta_val_fail[idx] -= price
+            else:
+                delta_qty_ok[idx] -= 1
+                delta_val_ok[idx] -= price
+                
+    wip_qty_ok = [0] * delta_days
+    wip_qty_fail = [0] * delta_days
+    wip_val_ok = [0.0] * delta_days
+    wip_val_fail = [0.0] * delta_days
+    
+    curr_q_ok, curr_q_fail = 0, 0
+    curr_v_ok, curr_v_fail = 0.0, 0.0
+    
+    for i in range(delta_days):
+        curr_q_ok += delta_qty_ok[i]
+        curr_q_fail += delta_qty_fail[i]
+        curr_v_ok += delta_val_ok[i]
+        curr_v_fail += delta_val_fail[i]
+        
+        wip_qty_ok[i] = curr_q_ok
+        wip_qty_fail[i] = curr_q_fail
+        wip_val_ok[i] = curr_v_ok
+        wip_val_fail[i] = curr_v_fail
+        
+    def get_last_day_of_month(year, month):
+        if month == 12:
+            return date(year, 12, 31)
+        return date(year, month + 1, 1) - timedelta(days=1)
+        
+    monthly_data = []
+    month_names = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"]
+    
+    for m in range(1, end_date.month):
+        last_day = get_last_day_of_month(end_date.year, m)
+        if last_day in date_to_index:
+            idx = date_to_index[last_day]
+            monthly_data.append({
+                'month': month_names[m - 1],
+                'qtyOk': wip_qty_ok[idx],
+                'qtyFail': wip_qty_fail[idx],
+                'valOk': round(wip_val_ok[idx], 2),
+                'valFail': round(wip_val_fail[idx], 2)
+            })
+            
+    today_idx = date_to_index[end_date]
+    monthly_data.append({
+        'month': month_names[end_date.month - 1],
+        'qtyOk': wip_qty_ok[today_idx],
+        'qtyFail': wip_qty_fail[today_idx],
+        'valOk': round(wip_val_ok[today_idx], 2),
+        'valFail': round(wip_val_fail[today_idx], 2)
+    })
+    
+    daily_data = []
+    for i in range(delta_days):
+        d = dates[i]
+        if d.month == end_date.month and d.year == end_date.year:
+            daily_data.append({
+                'date': d.strftime('%d/%m'),
+                'qtyOk': wip_qty_ok[i],
+                'qtyFail': wip_qty_fail[i],
+                'valOk': round(wip_val_ok[i], 2),
+                'valFail': round(wip_val_fail[i], 2)
+            })
+            
+    logger.info(f"compute_entire_wip_data completato in {time.time() - start_time:.4f} secondi.")
+    return {
+        'wipTotalValOk': round(global_val_ok, 2),
+        'wipTotalValFail': round(global_val_fail, 2),
+        'wipTotalVal': round(global_val_ok + global_val_fail, 2),
+        'wipTotalQtyOk': global_qty_ok,
+        'wipTotalQtyFail': global_qty_fail,
+        'wipTotalQty': global_qty_ok + global_qty_fail,
+        'wipOrdersCount': len(unique_orders),
+        'wipByDay': sorted_days,
+        'chartMonthly': {
+            'labels': [m['month'] for m in monthly_data],
+            'valOk': [m['valOk'] for m in monthly_data],
+            'valFail': [m['valFail'] for m in monthly_data]
+        },
+        'chartDaily': {
+            'labels': [d['date'] for d in daily_data],
+            'valOk': [d['valOk'] for d in daily_data],
+            'valFail': [d['valFail'] for d in daily_data]
+        },
+        'last_updated': datetime.now().isoformat()
+    }
+
+def refresh_wip_cache():
+    global WIP_CACHE_DATA
+    try:
+        new_data = compute_entire_wip_data()
+        WIP_CACHE_DATA = new_data
+        logger.info("Cache WIP (tabelle e grafici) aggiornata con successo.")
+    except Exception as e:
+        logger.error(f"Errore durante refresh cache WIP: {e}")
+
+def init_wip_cache_async():
+    def run():
+        logger.info("Avvio calcolo iniziale cache WIP completa...")
+        try:
+            refresh_wip_cache()
+            logger.info("Calcolo iniziale cache WIP completa completato.")
+        except Exception as e:
+            logger.exception(f"Errore calcolo iniziale cache WIP: {e}")
+    threading.Thread(target=run, daemon=True).start()
+
+
 def _start_scheduler() -> BackgroundScheduler:
     sched = BackgroundScheduler()
     sched.add_job(
@@ -635,13 +984,23 @@ def _start_scheduler() -> BackgroundScheduler:
         misfire_grace_time=60 * 60,
         coalesce=True,
     )
+    sched.add_job(
+        refresh_wip_cache,
+        'interval',
+        minutes=5,
+        id='refresh_wip_cache_job',
+        name='Refresh WIP cache (every 5m)',
+        replace_existing=True,
+        coalesce=True,
+    )
     sched.start()
-    logger.info("Scheduler avviato: job 'daily_report_0735' alle 07:35 e 'daily_wip_report_0740' alle 07:40 (Mar-Dom) ora locale.")
+    logger.info("Scheduler avviato: job 'daily_report_0735' alle 07:35, 'daily_wip_report_0740' alle 07:40 (Mar-Dom), 'refresh_wip_cache_job' ogni 5m ora locale.")
     return sched
 
 
 scheduler = _start_scheduler()
 atexit.register(lambda: scheduler.shutdown(wait=False))
+init_wip_cache_async()
 
 
 @app.route('/')
@@ -685,141 +1044,24 @@ def api_export_month_excel():
 @app.route('/api/wip')
 def api_wip():
     try:
-        now = datetime.now()
-        prod_day = MetricsService.current_production_date(now)
-
-        price_map = excel_svc.load_price_map()
-        wip_rows = sql_svc.get_wip_by_day('2026-01-01')
-
-        # Pre-resolve and cache SQL prices to avoid executing query inside loop for same orders
-        unique_orders = {r[1] for r in wip_rows}
-        sql_price_cache = {}
-        for order in unique_orders:
-            if order not in price_map:
-                fb = sql_svc.get_price_from_resetservices(order)
-                sql_price_cache[order] = fb if fb is not None else 0.0
-
-        def get_price(o: str) -> float:
-            return price_map[o] if o in price_map else sql_price_cache.get(o, 0.0)
-
-        # Raggruppamento per giorno
-        day_aggregation = {}
-        global_qty_ok = 0
-        global_qty_fail = 0
-        global_val_ok = 0.0
-        global_val_fail = 0.0
-
-        for r in wip_rows:
-            day, order, p_code, p_name, qty_ok, qty_fail = r
-            price = get_price(order)
-            val_ok = qty_ok * price
-            val_fail = qty_fail * price
-            
-            day_str = day.isoformat()
-            if day_str not in day_aggregation:
-                day_aggregation[day_str] = {
-                    'ProductionDay': day_str,
-                    'QtyOK': 0,
-                    'QtyFAIL': 0,
-                    'ValueOK': 0.0,
-                    'ValueFAIL': 0.0,
-                    'Orders': []
-                }
-            
-            day_aggregation[day_str]['QtyOK'] += qty_ok
-            day_aggregation[day_str]['QtyFAIL'] += qty_fail
-            day_aggregation[day_str]['ValueOK'] += val_ok
-            day_aggregation[day_str]['ValueFAIL'] += val_fail
-            day_aggregation[day_str]['Orders'].append({
-                'OrderNumber': order,
-                'ProductCode': p_code,
-                'ProductName': p_name,
-                'QtyOK': qty_ok,
-                'QtyFAIL': qty_fail,
-                'UnitPrice': price,
-                'ValueOK': val_ok,
-                'ValueFAIL': val_fail,
-                'TotalValue': val_ok + val_fail
+        global WIP_CACHE_DATA
+        if WIP_CACHE_DATA is None:
+            return jsonify({
+                'wipTotalValOk': 0.0,
+                'wipTotalValFail': 0.0,
+                'wipTotalVal': 0.0,
+                'wipTotalQtyOk': 0,
+                'wipTotalQtyFail': 0,
+                'wipTotalQty': 0,
+                'wipOrdersCount': 0,
+                'wipByDay': [],
+                'chartMonthly': {'labels': [], 'valOk': [], 'valFail': []},
+                'chartDaily': {'labels': [], 'valOk': [], 'valFail': []},
+                'loading': True
             })
-
-            global_qty_ok += qty_ok
-            global_qty_fail += qty_fail
-            global_val_ok += val_ok
-            global_val_fail += val_fail
-
-        # Convert day aggregation to sorted list (newest first)
-        sorted_days = sorted(day_aggregation.values(), key=lambda x: x['ProductionDay'], reverse=True)
-
-        # Calcola YTD Completed Value (inizio anno fino a inizio mese corrente)
-        ytd_start_dt = datetime(prod_day.year, 1, 1, 7, 30, 0)
-        ytd_end_dt = datetime(prod_day.year, prod_day.month, 1, 7, 30, 0)
-        ytd_completed_rows = sql_svc.get_ytd_completed_production(ytd_start_dt, ytd_end_dt)
-        
-        ytd_orders = {r[0] for r in ytd_completed_rows}
-        ytd_details = sql_svc.get_orders_details_bulk(list(ytd_orders))
-        
-        ytd_price_cache = {}
-        product_to_price = {}
-        
-        for order in ytd_orders:
-            price = None
-            if order in price_map:
-                price = price_map[order]
-            else:
-                fb = sql_svc.get_price_from_resetservices(order)
-                if fb is not None:
-                    price = fb
-            
-            if price is not None and price > 0:
-                ytd_price_cache[order] = price
-                p_code = ytd_details.get(order, {}).get('productCode')
-                if p_code:
-                    product_to_price[p_code] = price
-
-        ytd_start_value = 0.0
-        for order, qty in ytd_completed_rows:
-            price = ytd_price_cache.get(order)
-            if price is None:
-                p_code = ytd_details.get(order, {}).get('productCode')
-                if p_code in product_to_price:
-                    price = product_to_price[p_code]
-                else:
-                    price = 0.0
-            ytd_start_value += qty * price
-
-        # Ottieni le metriche del mese corrente per agganciare le progressioni
-        metrics = metrics_svc.compute(now)
-
-        # Calcola il target YTD cumulato reale dei mesi precedenti
-        ytd_start_target = 0.0
-        for m in range(1, prod_day.month):
-            month_targets = target_svc.get_targets_for_month(prod_day.year, m)
-            ytd_start_target += sum(month_targets.values())
-
-        # Costruisce i dati per il grafico inferiore YTD del WIP page
-        target_ytd = [round(ytd_start_target + t, 2) for t in metrics['chart']['target']]
-        rolling_ytd = [round(ytd_start_value + r, 2) if r is not None else None for r in metrics['chart']['rollingMonth']]
-        average_ytd = [round(ytd_start_value + a, 2) for a in metrics['chart']['average']]
-
-        return jsonify({
-            'wipTotalValOk': round(global_val_ok, 2),
-            'wipTotalValFail': round(global_val_fail, 2),
-            'wipTotalVal': round(global_val_ok + global_val_fail, 2),
-            'wipTotalQtyOk': global_qty_ok,
-            'wipTotalQtyFail': global_qty_fail,
-            'wipTotalQty': global_qty_ok + global_qty_fail,
-            'wipOrdersCount': len(unique_orders),
-            'wipByDay': sorted_days,
-            'chartYtd': {
-                'labels': metrics['chart']['labels'],
-                'target': target_ytd,
-                'rolling': rolling_ytd,
-                'average': average_ytd,
-                'ytdStartValue': round(ytd_start_value, 2)
-            }
-        })
+        return jsonify(WIP_CACHE_DATA)
     except Exception as e:
-        logger.exception("Errore nel calcolo del WIP")
+        logger.exception("Errore nel recupero dati WIP")
         return jsonify({'error': str(e)}), 500
 
 

@@ -1,7 +1,8 @@
 (function () {
     const REFRESH_MINUTES = parseInt(document.body.dataset.refreshMinutes || '60', 10);
     let chartInstance = null;
-    let wipChartInstance = null;
+    let wipMonthlyChartInstance = null;
+    let wipDailyChartInstance = null;
     let countdownSeconds = REFRESH_MINUTES * 60;
     let countdownInterval = null;
     
@@ -402,7 +403,7 @@
             }
 
             if (src) {
-                src.textContent = `Aggiornato alle: ${new Date().toLocaleTimeString('it-IT')} \u2022 Valore YTD iniziale (1 Gen): ${formatEUR(data.chartYtd.ytdStartValue)}`;
+                src.textContent = `Aggiornato alle: ${new Date().toLocaleTimeString('it-IT')}`;
             }
 
             renderWipChart(data);
@@ -414,116 +415,187 @@
     }
 
     function renderWipChart(data) {
-        const ctx = document.getElementById('chart-wip').getContext('2d');
         const baseFont = rootFontPx();
         const tickFont = Math.round(baseFont * 0.8);
         const titleFont = Math.round(baseFont * 0.85);
         const tooltipBody = Math.round(baseFont * 0.85);
-        const datasets = [
+
+        // 1. Monthly Chart (Stacked Bar)
+        const monthlyCtx = document.getElementById('chart-wip-monthly').getContext('2d');
+        const monthlyDatasets = [
             {
-                label: 'Target YTD',
-                data: data.chartYtd.target,
-                borderColor: '#4fc3f7',
-                backgroundColor: 'transparent',
-                borderWidth: 3,
-                borderDash: [10, 5],
-                tension: 0.15,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-            },
-            {
-                label: 'Media YTD',
-                data: data.chartYtd.average,
-                borderColor: '#ffb74d',
-                backgroundColor: 'transparent',
-                borderWidth: 3,
-                tension: 0.2,
-                pointRadius: 2,
-                pointHoverRadius: 5,
-            },
-            {
-                label: 'Rolling YTD',
-                data: data.chartYtd.rolling,
+                label: 'WIP OK',
+                data: data.chartMonthly.valOk,
+                backgroundColor: '#81c784',
                 borderColor: '#81c784',
-                backgroundColor: 'rgba(129,199,132,0.15)',
-                borderWidth: 4,
-                tension: 0.25,
-                fill: true,
-                pointRadius: 4,
-                pointHoverRadius: 7,
-                pointBackgroundColor: '#81c784',
-                pointBorderColor: '#0b111c',
-                pointBorderWidth: 2,
-                spanGaps: false,
+                borderWidth: 1,
+                stack: 'combined'
             },
+            {
+                label: 'WIP FAIL',
+                data: data.chartMonthly.valFail,
+                backgroundColor: '#ff5252',
+                borderColor: '#ff5252',
+                borderWidth: 1,
+                stack: 'combined'
+            }
         ];
 
-        if (wipChartInstance) {
-            wipChartInstance.data.labels = data.chartYtd.labels;
-            wipChartInstance.data.datasets.forEach((ds, i) => {
-                ds.data = datasets[i].data;
-            });
-            wipChartInstance.update('none');
-            return;
-        }
-
-        wipChartInstance = new Chart(ctx, {
-            type: 'line',
-            data: { labels: data.chartYtd.labels, datasets },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: 'rgba(20,32,46,0.95)',
-                        titleColor: '#f2f6fb',
-                        bodyColor: '#e8ecf2',
-                        footerColor: '#81c784',
-                        borderColor: '#4fc3f7',
-                        borderWidth: 1,
-                        padding: Math.round(baseFont * 0.75),
-                        titleFont: { size: tooltipBody + 1, weight: '600' },
-                        bodyFont: { size: tooltipBody },
-                        footerFont: { size: tooltipBody, weight: '600' },
-                        callbacks: {
-                            title: (items) => 'Giorno lavorativo ' + (items[0] ? items[0].label : ''),
-                            label: (c) => {
-                                const cum = c.parsed.y;
-                                return c.dataset.label + ': ' + formatEUR(cum) + ' (cumulato YTD)';
+        if (wipMonthlyChartInstance) {
+            wipMonthlyChartInstance.data.labels = data.chartMonthly.labels;
+            wipMonthlyChartInstance.data.datasets[0].data = data.chartMonthly.valOk;
+            wipMonthlyChartInstance.data.datasets[1].data = data.chartMonthly.valFail;
+            wipMonthlyChartInstance.update('none');
+        } else {
+            wipMonthlyChartInstance = new Chart(monthlyCtx, {
+                type: 'bar',
+                data: {
+                    labels: data.chartMonthly.labels,
+                    datasets: monthlyDatasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(20,32,46,0.95)',
+                            titleColor: '#f2f6fb',
+                            bodyColor: '#e8ecf2',
+                            borderColor: '#4fc3f7',
+                            borderWidth: 1,
+                            padding: Math.round(baseFont * 0.75),
+                            titleFont: { size: tooltipBody + 1, weight: '600' },
+                            bodyFont: { size: tooltipBody },
+                            callbacks: {
+                                label: (c) => {
+                                    return c.dataset.label + ': ' + formatEUR(c.parsed.y);
+                                },
+                                footer: (items) => {
+                                    let sum = 0;
+                                    items.forEach(item => { sum += item.parsed.y; });
+                                    return 'WIP Totale: ' + formatEUR(sum);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            ticks: { color: '#8fa3bf', font: { size: tickFont } },
+                            grid: { color: 'rgba(255,255,255,0.04)' }
+                        },
+                        y: {
+                            stacked: true,
+                            ticks: {
+                                color: '#8fa3bf',
+                                font: { size: 12 },
+                                callback: (v) => formatEUR(v)
+                            },
+                            grid: { color: 'rgba(255,255,255,0.04)' },
+                            title: {
+                                display: true,
+                                text: 'Valore (€)',
+                                color: '#8fa3bf',
+                                font: { size: titleFont, weight: '600' }
                             }
                         }
                     }
-                },
-                scales: {
-                    x: {
-                        ticks: { color: '#8fa3bf', font: { size: tickFont } },
-                        grid: { color: 'rgba(255,255,255,0.04)' },
-                        title: {
-                            display: true,
-                            text: 'Giorno lavorativo del mese',
-                            color: '#8fa3bf',
-                            font: { size: titleFont, weight: '600' },
-                        },
-                    },
-                    y: {
-                        ticks: {
-                            color: '#8fa3bf',
-                            font: { size: 12 },
-                            callback: (v) => formatEUR(v),
-                        },
-                        grid: { color: 'rgba(255,255,255,0.04)' },
-                        title: {
-                            display: true,
-                            text: 'Valore YTD Cumulato',
-                            color: '#8fa3bf',
-                            font: { size: titleFont, weight: '600' },
-                        },
-                    },
                 }
+            });
+        }
+
+        // 2. Daily Chart (Stacked Area)
+        const dailyCtx = document.getElementById('chart-wip-daily').getContext('2d');
+        const dailyDatasets = [
+            {
+                label: 'WIP OK',
+                data: data.chartDaily.valOk,
+                borderColor: '#81c784',
+                backgroundColor: 'rgba(129,199,132,0.3)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.25,
+                pointRadius: 1,
+                pointHoverRadius: 4,
+            },
+            {
+                label: 'WIP FAIL',
+                data: data.chartDaily.valFail,
+                borderColor: '#ff5252',
+                backgroundColor: 'rgba(255,82,82,0.3)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.25,
+                pointRadius: 1,
+                pointHoverRadius: 4,
             }
-        });
+        ];
+
+        if (wipDailyChartInstance) {
+            wipDailyChartInstance.data.labels = data.chartDaily.labels;
+            wipDailyChartInstance.data.datasets[0].data = data.chartDaily.valOk;
+            wipDailyChartInstance.data.datasets[1].data = data.chartDaily.valFail;
+            wipDailyChartInstance.update('none');
+        } else {
+            wipDailyChartInstance = new Chart(dailyCtx, {
+                type: 'line',
+                data: {
+                    labels: data.chartDaily.labels,
+                    datasets: dailyDatasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(20,32,46,0.95)',
+                            titleColor: '#f2f6fb',
+                            bodyColor: '#e8ecf2',
+                            borderColor: '#4fc3f7',
+                            borderWidth: 1,
+                            padding: Math.round(baseFont * 0.75),
+                            titleFont: { size: tooltipBody + 1, weight: '600' },
+                            bodyFont: { size: tooltipBody },
+                            callbacks: {
+                                label: (c) => {
+                                    return c.dataset.label + ': ' + formatEUR(c.parsed.y);
+                                },
+                                footer: (items) => {
+                                    let sum = 0;
+                                    items.forEach(item => { sum += item.parsed.y; });
+                                    return 'WIP Totale: ' + formatEUR(sum);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#8fa3bf', font: { size: tickFont } },
+                            grid: { color: 'rgba(255,255,255,0.04)' }
+                        },
+                        y: {
+                            stacked: true,
+                            ticks: {
+                                color: '#8fa3bf',
+                                font: { size: 12 },
+                                callback: (v) => formatEUR(v)
+                            },
+                            grid: { color: 'rgba(255,255,255,0.04)' },
+                            title: {
+                                display: true,
+                                text: 'Valore (€)',
+                                color: '#8fa3bf',
+                                font: { size: titleFont, weight: '600' }
+                            }
+                        }
+                    }
+                }
+            });
+        }
     }
 
     // Toggle view logic
@@ -673,9 +745,13 @@
                 chartInstance.destroy();
                 chartInstance = null;
             }
-            if (wipChartInstance) {
-                wipChartInstance.destroy();
-                wipChartInstance = null;
+            if (wipMonthlyChartInstance) {
+                wipMonthlyChartInstance.destroy();
+                wipMonthlyChartInstance = null;
+            }
+            if (wipDailyChartInstance) {
+                wipDailyChartInstance.destroy();
+                wipDailyChartInstance = null;
             }
             loadMetrics();
             if (currentView === 'wip') {
