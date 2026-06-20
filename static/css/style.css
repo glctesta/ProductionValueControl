@@ -547,6 +547,21 @@ html, body {
     overflow-y: auto;
 }
 
+#kpis-hourly .warnings-card::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+#kpis-hourly .warnings-card::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.1);
+}
+#kpis-hourly .warnings-card::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.15);
+    border-radius: 3px;
+}
+#kpis-hourly .warnings-card::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.3);
+}
+
 #kpis-hourly .hourly-card h3 {
     font-size: 0.68rem;
     text-transform: uppercase;
