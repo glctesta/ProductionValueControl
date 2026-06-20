@@ -7,5 +7,6 @@
   "excelSheet": "PR Master data From D365",
   "phaseId": 142,
   "productionDayStart": "07:30",
-  "country": "RO"
+  "country": "RO",
+  "hourlyEmailFrequency": "hourly"
 }

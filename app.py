@@ -7,6 +7,8 @@ import threading
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Optional
+
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -332,6 +334,187 @@ def _build_daily_report_html(metrics: dict, prod_day: date) -> str:
     </body>
     </html>
     """
+
+
+def run_hourly_production_email(forced_include_prev_day: Optional[bool] = None) -> bool:
+    """
+    Sends the hourly production report email to recipients from Sys_email_hourly_activity.
+    Includes the previous production day report if forced_include_prev_day is True or
+    if it is the 08:30 morning run (hour == 8).
+    """
+    try:
+        now = datetime.now()
+        prod_day = MetricsService.current_production_date(now)
+        
+        # 1. Fetch recipients
+        recipients = sql_svc.get_hourly_report_recipients()
+        if not recipients:
+            logger.warning("Hourly production report: no recipients configured (attribute 'Sys_email_hourly_activity').")
+            return False
+            
+        # 2. Get hourly production data
+        h_start, m_start = config.get('productionDayStart', '07:30').split(':')
+        prod_start_dt = datetime(prod_day.year, prod_day.month, prod_day.day, int(h_start), int(m_start), 0)
+        prod_end_dt = prod_start_dt + timedelta(days=1)
+        
+        hourly_rows = sql_svc.get_hourly_production(prod_start_dt, prod_end_dt)
+        cycle_times = sql_svc.get_cycle_times()
+        price_map = excel_svc.load_price_map()
+        
+        # Resolve prices
+        unique_orders = {r[1] for r in hourly_rows}
+        sql_price_cache = {}
+        for order in unique_orders:
+            if order not in price_map:
+                fb = sql_svc.get_price_from_resetservices(order)
+                sql_price_cache[order] = fb if fb is not None else 0.0
+                
+        combined_price_map = {o: price_map[o] for o in price_map}
+        combined_price_map.update(sql_price_cache)
+        
+        daily_target = target_svc.get_target_for_day(prod_day)
+        
+        # Analyze current hourly progress
+        analysis_result = analysis_svc.analyze_hourly_production(
+            hourly_rows=hourly_rows,
+            cycle_times=cycle_times,
+            price_map=combined_price_map,
+            daily_target=daily_target,
+            production_start_hour=prod_start_dt
+        )
+        
+        day_prog = analysis_result.get('dayProgress', {})
+        warnings = analysis_result.get('warnings', [])
+        
+        # Determine if we should include previous day report
+        # Morning run is at 08:30 (hour == 8)
+        include_prev = (now.hour == 8)
+        if forced_include_prev_day is not None:
+            include_prev = forced_include_prev_day
+            
+        prev_day_html = ""
+        if include_prev:
+            # Find the previous production date (Monday -> Friday, other days -> yesterday)
+            if prod_day.weekday() == 0:  # Monday
+                prev_day = prod_day - timedelta(days=3)
+            else:
+                prev_day = prod_day - timedelta(days=1)
+                
+            prev_day_end_dt = datetime(prev_day.year, prev_day.month, prev_day.day) + timedelta(days=1, hours=7, minutes=29, seconds=59)
+            
+            try:
+                prev_metrics = metrics_svc.compute(prev_day_end_dt)
+                
+                prev_target = _fmt_eur(prev_metrics.get('dailyTarget'))
+                prev_val = _fmt_eur(prev_metrics.get('todayValue'))
+                prev_gap = _fmt_eur(prev_metrics.get('dailyGap'))
+                prev_forecast = _fmt_eur(prev_metrics.get('forecastDay'))
+                
+                gap_val = prev_metrics.get('dailyGap', 0)
+                gap_color = "#C00000" if gap_val > 0 else "#006100"
+                
+                prev_day_html = f"""
+                <h3 style="color: #1F4E78; margin-top: 24px; border-bottom: 2px solid #1F4E78; padding-bottom: 6px;">
+                    Previous Production Day Report ({prev_day.strftime('%d/%m/%Y')})
+                </h3>
+                <table style="border-collapse: collapse; width: 100%; font-size: 14px; margin-bottom: 16px;">
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="padding: 8px; font-weight: bold; width: 250px;">Daily Target:</td>
+                        <td style="padding: 8px;">{prev_target}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="padding: 8px; font-weight: bold;">Value Produced:</td>
+                        <td style="padding: 8px; font-weight: bold; color: #1F4E78;">{prev_val}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="padding: 8px; font-weight: bold;">Daily Gap:</td>
+                        <td style="padding: 8px; color: {gap_color}; font-weight: bold;">{prev_gap}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="padding: 8px; font-weight: bold;">End-of-Day Forecast:</td>
+                        <td style="padding: 8px;">{prev_forecast}</td>
+                    </tr>
+                </table>
+                """
+            except Exception as e:
+                logger.exception(f"Hourly email: error computing previous day metrics: {e}")
+                prev_day_html = f"<p style='color:red;'>Error loading previous day report: {e}</p>"
+                
+        # Build active warnings HTML list
+        warnings_rows = []
+        if not warnings:
+            warnings_rows.append(
+                "<p style='color: #666; font-style: italic;'>No alerts detected. All phases are working inline with cycle times.</p>"
+            )
+        else:
+            for w in warnings:
+                border_color = "#ff5252" if w.get('severity') == 'high' else ("#ffb74d" if w.get('severity') == 'medium' else "#4fc3f7")
+                bg_color = "rgba(255,82,82,0.05)" if w.get('severity') == 'high' else ("rgba(255,183,77,0.04)" if w.get('severity') == 'medium' else "rgba(79,195,247,0.04)")
+                warnings_rows.append(
+                    f"<div style='border-left: 4px solid {border_color}; background-color: {bg_color}; padding: 10px; margin-bottom: 10px; border-radius: 0 6px 6px 0;'>"
+                    f"<strong style='font-size: 14px;'>{w.get('title')}</strong><br/>"
+                    f"<span style='font-size: 13px; color: #333;'>{w.get('message')}</span><br/>"
+                    f"<span style='font-size: 12px; color: #666; font-style: italic;'>{w.get('detail')}</span>"
+                    f"</div>"
+                )
+        warnings_html = "\n".join(warnings_rows)
+        
+        # Build HTML body
+        actual_val = _fmt_eur(day_prog.get('actual', 0.0))
+        target_val = _fmt_eur(day_prog.get('target', 0.0))
+        pct_val = f"{day_prog.get('percentage', 0.0):.1f}%"
+        
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #333; max-width: 800px; margin: 0 auto; line-height: 1.5;">
+            <h2 style="color: #1F4E78; border-bottom: 2px solid #1F4E78; padding-bottom: 8px; margin-bottom: 16px;">
+                Production Value &mdash; Hourly Activity Report
+            </h2>
+            <p>Dear Colleagues,</p>
+            <p>Please find below the production status update for the current production day <strong>{prod_day.strftime('%d/%m/%Y')}</strong> (updated as of {now.strftime('%H:%M')}).</p>
+            
+            <h3 style="color: #2E75B6; margin-top: 24px; border-bottom: 1px solid #2E75B6; padding-bottom: 4px;">
+                Current Day Progress
+            </h3>
+            <table style="border-collapse: collapse; width: 100%; font-size: 14px; margin-bottom: 20px;">
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold; width: 250px;">Daily Target:</td>
+                    <td style="padding: 8px;">{target_val}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold;">Value Produced So Far:</td>
+                    <td style="padding: 8px; font-weight: bold; color: #2E75B6;">{actual_val}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <td style="padding: 8px; font-weight: bold;">Progress:</td>
+                    <td style="padding: 8px; font-weight: bold;">{pct_val}</td>
+                </tr>
+            </table>
+            
+            <h3 style="color: #2E75B6; margin-top: 24px; border-bottom: 1px solid #2E75B6; padding-bottom: 4px; margin-bottom: 12px;">
+                Efficiency Alerts & Warnings (Local AI)
+            </h3>
+            {warnings_html}
+            
+            {prev_day_html}
+            
+            <br/>
+            <p style="color: #666; font-size: 13px; border-top: 1px solid #ddd; padding-top: 12px; margin-top: 20px;">
+                Best regards,<br/>
+                <strong>Production Value Monitoring System</strong>
+            </p>
+        </body>
+        </html>
+        """
+        
+        subject = f"[Production Hourly] Activity Report - {prod_day.strftime('%d/%m/%Y')} {now.strftime('%H:%M')}"
+        ok = email_svc.send(recipients=recipients, subject=subject, html_body=html_body)
+        if ok:
+            logger.info(f"Hourly production email sent successfully to {len(recipients)} recipients.")
+        return ok
+    except Exception as e:
+        logger.exception(f"Error running hourly production email: {e}")
+        return False
 
 
 def run_daily_report() -> bool:
@@ -1063,6 +1246,43 @@ def _start_scheduler() -> BackgroundScheduler:
         replace_existing=True,
         coalesce=True,
     )
+    
+    # Configure and add Hourly Production Report Email job
+    frequency = config.get('hourlyEmailFrequency', 'hourly')
+    if frequency == 'hourly':
+        sched.add_job(
+            run_hourly_production_email,
+            CronTrigger(day_of_week='mon-fri', hour='8-23', minute='30'),
+            id='hourly_production_email',
+            name='Hourly production email (08:30-23:30 Mon-Fri)',
+            replace_existing=True,
+            misfire_grace_time=30 * 60,
+            coalesce=True,
+        )
+        logger.info("Scheduled hourly email: Mon-Fri from 08:30 to 23:30.")
+    elif frequency == '4hours':
+        sched.add_job(
+            run_hourly_production_email,
+            CronTrigger(day_of_week='mon-fri', hour='8,12,16,20', minute='30'),
+            id='hourly_production_email',
+            name='4-Hourly production email (08:30, 12:30, 16:30, 20:30 Mon-Fri)',
+            replace_existing=True,
+            misfire_grace_time=30 * 60,
+            coalesce=True,
+        )
+        logger.info("Scheduled 4-hourly email: Mon-Fri at 08:30, 12:30, 16:30, 20:30.")
+    elif frequency == 'morning':
+        sched.add_job(
+            run_hourly_production_email,
+            CronTrigger(day_of_week='mon-fri', hour='8', minute='30'),
+            id='hourly_production_email',
+            name='Morning production email (08:30 Mon-Fri)',
+            replace_existing=True,
+            misfire_grace_time=30 * 60,
+            coalesce=True,
+        )
+        logger.info("Scheduled morning-only email: Mon-Fri at 08:30.")
+        
     sched.start()
     logger.info("Scheduler avviato: job 'daily_report_0735' alle 07:35, 'daily_wip_report_0740' alle 07:40 (Mar-Dom), 'refresh_wip_cache_job' ogni 5m ora locale.")
     return sched
@@ -1286,6 +1506,20 @@ def api_daily_report_test():
     if ok:
         return jsonify({'ok': True, 'message': 'Report inviato.'})
     return jsonify({'ok': False, 'message': 'Report non inviato (vedi log per dettagli).'}), 500
+
+
+@app.route('/api/daily-report/hourly-test', methods=['POST', 'GET'])
+def api_daily_report_hourly_test():
+    """
+    Trigger manuale per testare l'invio del report orario.
+    Query params: ?prev_day=true (per includere forzatamente il report del giorno precedente).
+    """
+    from flask import request
+    force_prev = request.args.get('prev_day', '').lower() == 'true'
+    ok = run_hourly_production_email(forced_include_prev_day=force_prev if request.args.get('prev_day') else None)
+    if ok:
+        return jsonify({'ok': True, 'message': 'Hourly report sent.'})
+    return jsonify({'ok': False, 'message': 'Hourly report not sent (see logs for details).'}), 500
 
 
 @app.route('/api/daily-report/preview.png')

@@ -46,8 +46,8 @@ html, body {
 .kpi-group {
     display: grid;
     /* minmax in rem cosi' i box crescono insieme al font root */
-    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-    gap: 0.6rem;
+    grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+    gap: 0.4rem;
     width: 100%;
 }
 
@@ -55,22 +55,22 @@ html, body {
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: 10px 14px;
+    padding: 6px 10px;
     background: rgba(255, 255, 255, 0.025);
     border-left: 3px solid #4fc3f7;
-    border-radius: 8px;
+    border-radius: 6px;
     transition: background 0.25s;
 }
 .kpi:hover { background: rgba(255, 255, 255, 0.05); }
 
 .kpi-label {
-    font-size: 0.7rem;
+    font-size: 0.62rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: #8fa3bf;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
     line-height: 1.15;
-    min-height: 2.3em;
+    min-height: 2.0em;
     display: flex;
     align-items: flex-end;
     white-space: normal;
@@ -79,7 +79,7 @@ html, body {
 }
 
 .kpi-value {
-    font-size: 1.45rem;
+    font-size: 1.2rem;
     font-weight: 700;
     color: #f2f6fb;
     font-variant-numeric: tabular-nums;
@@ -95,8 +95,9 @@ html, body {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    justify-content: space-between;
-    gap: 10px;
+    justify-content: flex-start;
+    align-self: start;
+    gap: 4px;
     padding-left: 18px;
     border-left: 1px solid rgba(255,255,255,0.08);
 }
@@ -127,20 +128,20 @@ html, body {
     min-width: 100px;
 }
 #clock-time {
-    font-size: 1.45rem;
+    font-size: 1.05rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.02em;
 }
 #clock-date {
-    font-size: 0.78rem;
+    font-size: 0.7rem;
     color: #8fa3bf;
     margin-top: 1px;
 }
 
 #refresh-info {
     text-align: right;
-    font-size: 0.8rem;
+    font-size: 0.72rem;
     color: #a8b8ce;
     width: 100%;
 }
@@ -148,8 +149,8 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 6px;
-    margin-bottom: 6px;
+    gap: 4px;
+    margin-bottom: 4px;
 }
 .refresh-label {
     font-size: 0.65rem;
@@ -165,23 +166,23 @@ html, body {
 .header-buttons {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 4px;
     align-items: flex-end;
     width: 100%;
 }
 .button-row {
     display: flex;
-    gap: 5px;
+    gap: 4px;
     justify-content: flex-end;
     width: 100%;
 }
 
 #refresh-btn, #export-btn, #export-wip-btn, #pause-rotation-btn, #admin-targets-link, .nav-btn {
-    padding: 3px 6px;
+    padding: 2px 5px;
     border: none;
     border-radius: 6px;
     font-weight: 700;
-    font-size: 0.65rem;
+    font-size: 0.6rem;
     cursor: pointer;
     transition: transform 0.1s, box-shadow 0.2s, opacity 0.2s;
     letter-spacing: 0.02em;
@@ -265,11 +266,11 @@ html, body {
 #refresh-btn:active, #export-btn:active, #export-wip-btn:active, #toggle-view-btn:active, #pause-rotation-btn:active, #admin-targets-link:active { transform: translateY(0); }
 
 #logo {
-    height: 4rem;
+    height: 2.1rem;
     width: auto;
     object-fit: contain;
     background: rgba(255,255,255,0.95);
-    padding: 0.25rem 0.6rem;
+    padding: 0.15rem 0.4rem;
     border-radius: 8px;
 }
 
@@ -342,7 +343,7 @@ html, body {
 
 #wip-content {
     display: grid;
-    grid-template-rows: 1.1fr 0.9fr; /* Divide lo spazio: tabella sopra, grafico sotto */
+    grid-template-rows: 0.8fr 1.2fr; /* Divide lo spazio: tabella sopra, grafico sotto */
     gap: 12px;
     min-height: 0;
     height: 100%;
@@ -352,7 +353,7 @@ html, body {
     background: linear-gradient(180deg, rgba(20,32,46,0.95), rgba(14,22,33,0.95));
     border: 1px solid #253247;
     border-radius: 14px;
-    padding: 12px 18px;
+    padding: 8px 14px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.35);
     display: flex;
     flex-direction: column;
@@ -360,10 +361,10 @@ html, body {
 }
 
 #wip-table-wrapper h3, #wip-chart-wrapper h3 {
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     font-weight: 600;
     color: #f2f6fb;
-    margin-bottom: 8px;
+    margin-bottom: 4px;
     border-left: 3px solid #81c784;
     padding-left: 8px;
 }
@@ -401,18 +402,18 @@ html, body {
     background: #14202e;
     color: #8fa3bf;
     font-weight: 600;
-    padding: 10px 12px;
+    padding: 6px 8px;
     position: sticky;
     top: 0;
     z-index: 10;
     border-bottom: 2px solid #253247;
-    font-size: 0.76rem;
+    font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
 
 #wip-table td {
-    padding: 10px 12px;
+    padding: 6px 8px;
     border-bottom: 1px solid rgba(255,255,255,0.04);
     font-variant-numeric: tabular-nums;
 }
@@ -542,7 +543,7 @@ html, body {
 
 #kpis-hourly .warnings-card {
     border-left-color: #ffb74d;
-    max-height: 75px;
+    max-height: 120px;
     overflow-y: auto;
 }
 

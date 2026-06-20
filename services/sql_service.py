@@ -253,6 +253,12 @@ class SqlService:
         """
         return self._get_settings_emails('Sys_email_wip')
 
+    def get_hourly_report_recipients(self) -> List[str]:
+        """
+        Legge 'Sys_email_hourly_activity' dalla tabella settings.
+        """
+        return self._get_settings_emails('Sys_email_hourly_activity')
+
     def get_wip_by_day(self, start_date_str: str = "2026-01-01") -> List[Tuple[date, str, str, str, int, int]]:
         """
         Ritorna la lista degli ordini in WIP raggruppati per giorno di ingresso (PTH),
