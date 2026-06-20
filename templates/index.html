@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,69 +14,107 @@
                 <!-- KPI Produzione -->
                 <div id="kpis-production" class="kpi-group">
                     <div class="kpi">
-                        <span class="kpi-label">Target Giornaliero</span>
+                        <span class="kpi-label">Daily Target</span>
                         <span class="kpi-value" id="kpi-daily-target">&mdash;</span>
                     </div>
                     <div class="kpi">
-                        <span class="kpi-label">Target Mensile</span>
+                        <span class="kpi-label">Monthly Target</span>
                         <span class="kpi-value" id="kpi-monthly-target">&mdash;</span>
                     </div>
                     <div class="kpi">
-                        <span class="kpi-label">Valore Prodotto Oggi</span>
+                        <span class="kpi-label">Value Produced Today</span>
                         <span class="kpi-value" id="kpi-today-value">&mdash;</span>
                     </div>
                     <div class="kpi">
-                        <span class="kpi-label">Valore Prodotto Mese</span>
+                        <span class="kpi-label">Value Produced Month</span>
                         <span class="kpi-value" id="kpi-month-value">&mdash;</span>
                     </div>
                     <div class="kpi">
-                        <span class="kpi-label">Gap Giornaliero</span>
+                        <span class="kpi-label">Daily Gap</span>
                         <span class="kpi-value" id="kpi-daily-gap">&mdash;</span>
                     </div>
                     <div class="kpi">
-                        <span class="kpi-label">Gap Mensile</span>
+                        <span class="kpi-label">Monthly Gap</span>
                         <span class="kpi-value" id="kpi-monthly-gap">&mdash;</span>
                     </div>
                     <div class="kpi">
-                        <span class="kpi-label">Previsione Fine Giorno</span>
+                        <span class="kpi-label">End-of-Day Forecast</span>
                         <span class="kpi-value" id="kpi-forecast-day">&mdash;</span>
                     </div>
                     <div class="kpi">
-                        <span class="kpi-label">Previsione Fine Mese</span>
+                        <span class="kpi-label">End-of-Month Forecast</span>
                         <span class="kpi-value" id="kpi-forecast-month">&mdash;</span>
                     </div>
                     <div class="kpi">
-                        <span class="kpi-label">Aggiustamento Richiesto / Giorno</span>
+                        <span class="kpi-label">Required Adj. / Day</span>
                         <span class="kpi-value" id="kpi-required">&mdash;</span>
                     </div>
                 </div>
                 <!-- KPI WIP -->
                 <div id="kpis-wip" class="kpi-group hidden">
                     <div class="kpi">
-                        <span class="kpi-label">Valore Totale WIP</span>
+                        <span class="kpi-label">Total WIP Value</span>
                         <span class="kpi-value" id="kpi-wip-total-val">&mdash;</span>
                     </div>
                     <div class="kpi">
-                        <span class="kpi-label">WIP Valore OK</span>
+                        <span class="kpi-label">WIP OK Value</span>
                         <span class="kpi-value" id="kpi-wip-ok-val">&mdash;</span>
                     </div>
                     <div class="kpi" style="border-left: 3px solid #ff5252;">
-                        <span class="kpi-label" style="color: #ffa4a4;">WIP Valore FAIL</span>
+                        <span class="kpi-label" style="color: #ffa4a4;">WIP FAIL Value</span>
                         <span class="kpi-value" id="kpi-wip-fail-val" style="color: #ff5252;">&mdash;</span>
                     </div>
                     <div class="kpi">
-                        <span class="kpi-label">Pezzi Totali WIP</span>
+                        <span class="kpi-label">Total WIP Pieces</span>
                         <span class="kpi-value" id="kpi-wip-total-qty">&mdash;</span>
                     </div>
                     <div class="kpi">
-                        <span class="kpi-label">Ordini Attivi WIP</span>
+                        <span class="kpi-label">Active WIP Orders</span>
                         <span class="kpi-value" id="kpi-wip-orders-count">&mdash;</span>
                     </div>
                 </div>
-            </div>
+                <!-- KPI Orario (Hourly KPIs) -->
+                <div id="kpis-hourly" class="kpi-group hidden">
+                    <!-- Progress vs Budget -->
+                    <div class="hourly-card progress-card">
+                        <h3>Progress vs Budget</h3>
+                        <div class="progress-container">
+                            <div class="progress-bar-label">
+                                <span>Current Day</span>
+                                <span id="hourly-day-progress-pct">0%</span>
+                            </div>
+                            <div class="progress-bar-bg">
+                                <div id="hourly-day-progress-bar" class="progress-bar-fill" style="width: 0%;"></div>
+                            </div>
+                            <div class="progress-bar-values">
+                                <span id="hourly-day-actual">0 €</span> / <span id="hourly-day-target">0 €</span>
+                            </div>
+                        </div>
+                        <div class="progress-container" style="margin-top: 6px;">
+                            <div class="progress-bar-label">
+                                <span>Current Month</span>
+                                <span id="hourly-month-progress-pct">0%</span>
+                            </div>
+                            <div class="progress-bar-bg">
+                                <div id="hourly-month-progress-bar" class="progress-bar-fill" style="width: 0%;"></div>
+                            </div>
+                            <div class="progress-bar-values">
+                                <span id="hourly-month-actual">0 €</span> / <span id="hourly-month-target">0 €</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Efficiency Alerts & Warnings -->
+                    <div class="hourly-card warnings-card">
+                        <h3>Efficiency Alerts & Warnings (Local AI)</h3>
+                        <div id="hourly-warnings-list">
+                            <div class="no-warnings">No alerts detected. Phases are working inline with cycle times.</div>
+                        </div>
+                    </div>
+                </div>
             <div id="header-right">
                 <div class="header-top-row">
-                    <div id="warning-star" class="hidden" title="Alcuni ordini mancano dal file Excel">&#11088;</div>
+                    <div id="warning-star" class="hidden" title="Some orders are missing from Excel file">&#11088;</div>
                     <div id="clock">
                         <div id="clock-time">--:--:--</div>
                         <div id="clock-date">--/--/----</div>
@@ -85,26 +123,28 @@
                 </div>
                 <div id="refresh-info">
                     <div class="refresh-countdown-container">
-                        <span class="refresh-label">Prossimo refresh:</span>
+                        <span class="refresh-label">Next Refresh:</span>
                         <span class="refresh-countdown"><span id="countdown">--</span> min</span>
                     </div>
                     <div class="header-buttons">
                         <div class="button-row">
-                            <button id="toggle-view-btn" type="button">Vai a WIP</button>
-                            <button id="pause-rotation-btn" type="button">Auto-swap: Attivo</button>
+                            <button id="btn-nav-production" type="button" class="nav-btn active">Production</button>
+                            <button id="btn-nav-wip" type="button" class="nav-btn">WIP</button>
+                            <button id="btn-nav-hourly" type="button" class="nav-btn">Hourly</button>
+                            <button id="pause-rotation-btn" type="button">Auto-swap: Active</button>
                         </div>
                         <div class="button-row">
                             <button id="refresh-btn" type="button">Refresh</button>
-                            <button id="export-btn" type="button" title="Scarica report Excel del mese corrente">Export Excel</button>
-                            <button id="export-wip-btn" type="button" class="hidden" title="Scarica report Excel del WIP">Export WIP</button>
-                            <a id="admin-targets-link" href="/admin/targets" title="Pianifica i target giornalieri">Pianifica target</a>
+                            <button id="export-btn" type="button" title="Download current month Excel report">Export Excel</button>
+                            <button id="export-wip-btn" type="button" class="hidden" title="Download WIP Excel report">Export WIP</button>
+                            <a id="admin-targets-link" href="/admin/targets" title="Plan daily targets">Plan Targets</a>
                         </div>
                     </div>
                 </div>
             </div>
         </header>
 
-        <!-- Contenuto principale alternabile -->
+        <!-- Main Switchable Content -->
         <div id="panel-production" class="view-panel">
             <main id="chart-container">
                 <canvas id="chart"></canvas>
@@ -113,19 +153,22 @@
             <footer id="legend">
                 <div class="legend-item">
                     <span class="legend-color" style="background:#4fc3f7"></span>
-                    Target (lineare sul giorno lavorativo)
+                    Target (linear on working day)
                 </div>
                 <div class="legend-item">
                     <span class="legend-color" style="background:#ffb74d"></span>
-                    Media (giorni lavorativi)
+                    Average (working days)
                 </div>
                 <div class="legend-item">
                     <span class="legend-color" style="background:#81c784"></span>
-                    Rolling Mese (cumulato reale con carry-forward dei giorni non lavorativi)
+                    Rolling Month (actual cumulative carrying forward non-working days)
                 </div>
                 <div class="legend-item legend-warning">
                     <span class="star-icon">&#11088;</span>
-                    Stella gialla: alcuni ordini prodotti oggi non sono presenti nel file Excel D365 &mdash; il valore mostrato potrebbe essere sottostimato.
+                    Yellow star: some orders produced today are missing from the D365 Excel file &mdash; value shown may be underestimated.
+                </div>
+                <div class="legend-item">
+                    <button id="btn-go-to-hourly-from-prod" type="button" class="page-action-btn">View Hourly Trend &rarr;</button>
                 </div>
                 <div class="legend-item legend-meta">
                     <span id="source-info"></span>
@@ -135,43 +178,43 @@
 
         <div id="panel-wip" class="view-panel hidden">
             <div id="wip-content">
-                <!-- Sezione Tabella WIP Giornaliera -->
+                <!-- WIP Daily Table Section -->
                 <div id="wip-table-wrapper">
-                    <h3>Dettaglio Ordini in WIP per Giorno di Ingresso (PTH)</h3>
+                    <h3>WIP Orders Detail by Entry Day (PTH)</h3>
                     <div id="wip-table-scroll">
                         <table id="wip-table">
                             <thead>
                                 <tr>
                                     <th style="width: 40px;"></th>
-                                    <th>Giorno Prod. Ingresso</th>
-                                    <th style="text-align: right;">Pezzi OK</th>
-                                    <th style="text-align: right;">Pezzi FAIL</th>
-                                    <th style="text-align: right;">Pezzi Totali</th>
-                                    <th style="text-align: right;">Valore OK</th>
-                                    <th style="text-align: right;">Valore FAIL</th>
-                                    <th style="text-align: right;">Valore Totale</th>
+                                    <th>Prod. Entry Day</th>
+                                    <th style="text-align: right;">OK Pieces</th>
+                                    <th style="text-align: right;">FAIL Pieces</th>
+                                    <th style="text-align: right;">Total Pieces</th>
+                                    <th style="text-align: right;">OK Value</th>
+                                    <th style="text-align: right;">FAIL Value</th>
+                                    <th style="text-align: right;">Total Value</th>
                                 </tr>
                             </thead>
                             <tbody id="wip-table-body">
                                 <tr>
-                                    <td colspan="8" style="text-align: center; color: #8fa3bf;">Caricamento dati WIP in corso...</td>
+                                    <td colspan="8" style="text-align: center; color: #8fa3bf;">Loading WIP data...</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
 
-                <!-- Sezione Grafico Bottom (Doppio Grafico in Valore) -->
+                <!-- Bottom Chart Section (Dual Charts) -->
                 <div id="wip-chart-wrapper">
                     <div class="wip-dual-charts-container">
                         <div class="wip-chart-half">
-                            <h3>Andamento Mensile YTD (€)</h3>
+                            <h3>Monthly YTD Trend (€)</h3>
                             <div id="wip-monthly-chart-container">
                                 <canvas id="chart-wip-monthly"></canvas>
                             </div>
                         </div>
                         <div class="wip-chart-half">
-                            <h3>Dettaglio Giornaliero del Mese (€)</h3>
+                            <h3>Daily Month Detail (€)</h3>
                             <div id="wip-daily-chart-container">
                                 <canvas id="chart-wip-daily"></canvas>
                             </div>
@@ -183,18 +226,54 @@
             <footer id="legend-wip">
                 <div class="legend-item">
                     <span class="legend-color" style="background:#81c784"></span>
-                    WIP Valore OK (Schede conformi in produzione)
+                    WIP Value OK (Conforming boards in production)
                 </div>
                 <div class="legend-item">
                     <span class="legend-color" style="background:#ff5252"></span>
-                    WIP Valore FAIL (Schede in scarto/riparazione)
+                    WIP Value FAIL (Scrapped/under-repair boards)
+                </div>
+                <div class="legend-item">
+                    <button id="btn-go-to-hourly-from-wip" type="button" class="page-action-btn">View Hourly Trend &rarr;</button>
                 </div>
                 <div class="legend-item legend-meta">
                     <span id="wip-source-info"></span>
                 </div>
             </footer>
         </div>
+
+        <div id="panel-hourly" class="view-panel hidden">
+            <div id="hourly-content">
+                <!-- Hourly Production Trend Chart -->
+                <div id="hourly-chart-wrapper">
+                    <div class="hourly-chart-container">
+                        <h3>Hourly Production Trend (Hourly & Progressive)</h3>
+                        <div class="chart-canvas-wrapper">
+                            <canvas id="chart-production-hourly"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <footer id="legend-hourly">
+                <div class="legend-item">
+                    <span class="legend-color" style="background:#4fc3f7"></span>
+                    Progressive Hourly Budget (cumulative over 16 standard hours)
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background:#81c784"></span>
+                    Cumulative Real Progress
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background:#ffb74d"></span>
+                    Value Produced in the Hour
+                </div>
+                <div class="legend-item" style="margin-left: auto;">
+                    <button id="btn-pause-rotation-hourly" type="button" class="page-action-btn">Auto-swap: Active</button>
+                </div>
+            </footer>
+        </div>
     </div>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
 </body>
 </html>

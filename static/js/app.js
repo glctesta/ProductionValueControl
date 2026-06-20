@@ -3,11 +3,12 @@
     let chartInstance = null;
     let wipMonthlyChartInstance = null;
     let wipDailyChartInstance = null;
+    let hourlyChartInstance = null;
     let countdownSeconds = REFRESH_MINUTES * 60;
     let countdownInterval = null;
     
     // View state
-    let currentView = 'production'; // 'production' o 'wip'
+    let currentView = 'production'; // 'production', 'wip' or 'hourly'
     const ROTATION_SECONDS = parseInt(document.body.dataset.rotationSeconds || '20', 10);
     let secondsSinceRotation = 0;
 
@@ -75,8 +76,11 @@
 
     function refreshAllData() {
         loadMetrics();
-        if (currentView === 'wip' || document.getElementById('panel-wip').classList.contains('hidden') === false) {
+        if (currentView === 'wip' || !document.getElementById('panel-wip').classList.contains('hidden')) {
             loadWipMetrics();
+        }
+        if (currentView === 'hourly' || !document.getElementById('panel-hourly').classList.contains('hidden')) {
+            loadHourlyMetrics();
         }
     }
 
@@ -127,7 +131,7 @@
                 pointHoverRadius: 4,
             },
             {
-                label: 'Media (giorni lavorativi)',
+                label: 'Average (working days)',
                 data: data.chart.average,
                 dailyData: data.chart.averageDaily || [],
                 borderColor: '#ffb74d',
@@ -138,7 +142,7 @@
                 pointHoverRadius: 5,
             },
             {
-                label: 'Rolling Mese',
+                label: 'Rolling Month',
                 data: data.chart.rollingMonth,
                 dailyData: data.chart.rollingDaily || [],
                 borderColor: '#81c784',
@@ -190,13 +194,13 @@
                         bodyFont: { size: tooltipBody },
                         footerFont: { size: tooltipBody, weight: '600' },
                         callbacks: {
-                            title: (items) => 'Giorno lavorativo ' + (items[0] ? items[0].label : ''),
+                            title: (items) => 'Working day ' + (items[0] ? items[0].label : ''),
                             label: (c) => {
                                 const cum = c.parsed.y;
                                 const daily = (c.dataset.dailyData || [])[c.dataIndex];
-                                const parts = [c.dataset.label + ': ' + formatEUR(cum) + ' (cumulato)'];
+                                const parts = [c.dataset.label + ': ' + formatEUR(cum) + ' (cumulative)'];
                                 if (daily !== null && daily !== undefined) {
-                                    parts.push('    \u2192 giorno: ' + formatEUR(daily));
+                                    parts.push('    \u2192 day: ' + formatEUR(daily));
                                 }
                                 return parts;
                             },
@@ -207,10 +211,10 @@
                                 const val = (chartInstance && chartInstance.$rollingDaily) ? chartInstance.$rollingDaily[idx] : null;
                                 const lines = [];
                                 if (val !== null && val !== undefined) {
-                                    lines.push('Valore prodotto: ' + formatEUR(val));
+                                    lines.push('Value produced: ' + formatEUR(val));
                                 }
                                 if (qty !== null && qty !== undefined) {
-                                    lines.push('Pezzi prodotti: ' + new Intl.NumberFormat('it-IT').format(qty));
+                                    lines.push('Pieces produced: ' + new Intl.NumberFormat('it-IT').format(qty));
                                 }
                                 return lines;
                             },
@@ -223,7 +227,7 @@
                         grid: { color: 'rgba(255,255,255,0.04)' },
                         title: {
                             display: true,
-                            text: 'Giorno lavorativo del mese',
+                            text: 'Working day of the month',
                             color: '#8fa3bf',
                             font: { size: titleFont, weight: '600' },
                         },
@@ -237,7 +241,7 @@
                         grid: { color: 'rgba(255,255,255,0.04)' },
                         title: {
                             display: true,
-                            text: 'Valore cumulato',
+                            text: 'Cumulative value',
                             color: '#8fa3bf',
                             font: { size: titleFont, weight: '600' },
                         },
@@ -288,11 +292,11 @@
                 if (data.excelFile) parts.push('Excel: ' + data.excelFile);
                 if (data.workingDaysInMonth) {
                     parts.push(
-                        'Giorni lav. mese: ' + data.workingDaysInMonth +
-                        ' (residui: ' + data.remainingWorkingDays + ')'
+                        'Working days in month: ' + data.workingDaysInMonth +
+                        ' (remaining: ' + data.remainingWorkingDays + ')'
                     );
                 }
-                if (data.productionDay) parts.push('Giorno prod.: ' + data.productionDay);
+                if (data.productionDay) parts.push('Prod. day: ' + data.productionDay);
                 src.textContent = parts.join(' • ');
             }
 
@@ -326,13 +330,13 @@
             document.getElementById('kpi-wip-total-val').textContent = formatEUR(data.wipTotalVal);
             document.getElementById('kpi-wip-ok-val').textContent = formatEUR(data.wipTotalValOk);
             document.getElementById('kpi-wip-fail-val').textContent = formatEUR(data.wipTotalValFail);
-            document.getElementById('kpi-wip-total-qty').textContent = new Intl.NumberFormat('it-IT').format(data.wipTotalQty) + ' pz (OK: ' + data.wipTotalQtyOk + ' / FAIL: ' + data.wipTotalQtyFail + ')';
+            document.getElementById('kpi-wip-total-qty').textContent = new Intl.NumberFormat('it-IT').format(data.wipTotalQty) + ' pcs (OK: ' + data.wipTotalQtyOk + ' / FAIL: ' + data.wipTotalQtyFail + ')';
             document.getElementById('kpi-wip-orders-count').textContent = data.wipOrdersCount;
 
             // Rende tabella giornaliera
             tbody.innerHTML = '';
             if (!data.wipByDay || data.wipByDay.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #8fa3bf; padding: 20px;">Nessun ordine in WIP attivo nel 2026.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #8fa3bf; padding: 20px;">No active WIP orders in 2026.</td></tr>';
             } else {
                 data.wipByDay.forEach(dayData => {
                     const dayStr = dayData.ProductionDay;
@@ -374,8 +378,8 @@
                                         <th>Product Name</th>
                                         <th style="text-align: right;">Qty OK</th>
                                         <th style="text-align: right;">Qty FAIL</th>
-                                        <th style="text-align: right;">Prezzo Unit.</th>
-                                        <th style="text-align: right;">Valore Totale</th>
+                                        <th style="text-align: right;">Unit Price</th>
+                                        <th style="text-align: right;">Total Value</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -420,14 +424,14 @@
             }
 
             if (src) {
-                src.textContent = `Aggiornato alle: ${new Date().toLocaleTimeString('it-IT')}`;
+                src.textContent = `Updated at: ${new Date().toLocaleTimeString('it-IT')}`;
             }
 
             renderWipChart(data);
 
         } catch (e) {
-            console.error('Errore caricamento WIP:', e);
-            if (src) src.textContent = 'Errore: ' + e.message;
+            console.error('Error loading WIP:', e);
+            if (src) src.textContent = 'Error: ' + e.message;
         }
     }
 
@@ -492,7 +496,7 @@
                                 footer: (items) => {
                                     let sum = 0;
                                     items.forEach(item => { sum += item.parsed.y; });
-                                    return 'WIP Totale: ' + formatEUR(sum);
+                                    return 'Total WIP: ' + formatEUR(sum);
                                 }
                             }
                         }
@@ -513,7 +517,7 @@
                             grid: { color: 'rgba(255,255,255,0.04)' },
                             title: {
                                 display: true,
-                                text: 'Valore (€)',
+                                text: 'Value (€)',
                                 color: '#8fa3bf',
                                 font: { size: titleFont, weight: '600' }
                             }
@@ -584,7 +588,7 @@
                                 footer: (items) => {
                                     let sum = 0;
                                     items.forEach(item => { sum += item.parsed.y; });
-                                    return 'WIP Totale: ' + formatEUR(sum);
+                                    return 'Total WIP: ' + formatEUR(sum);
                                 }
                             }
                         }
@@ -604,7 +608,173 @@
                             grid: { color: 'rgba(255,255,255,0.04)' },
                             title: {
                                 display: true,
-                                text: 'Valore (€)',
+                                text: 'Value (€)',
+                                color: '#8fa3bf',
+                                font: { size: titleFont, weight: '600' }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    async function loadHourlyMetrics() {
+        const warningsList = document.getElementById('hourly-warnings-list');
+        try {
+            const resp = await fetch('/api/hourly-production', { cache: 'no-store' });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const data = await resp.json();
+            if (data.error) throw new Error(data.error);
+
+            // Popola progressi Giorno
+            document.getElementById('hourly-day-progress-pct').textContent = data.dayProgress.percentage + '%';
+            document.getElementById('hourly-day-progress-bar').style.width = Math.min(100, data.dayProgress.percentage) + '%';
+            document.getElementById('hourly-day-actual').textContent = formatEUR(data.dayProgress.actual);
+            document.getElementById('hourly-day-target').textContent = formatEUR(data.dayProgress.target);
+
+            // Popola progressi Mese
+            document.getElementById('hourly-month-progress-pct').textContent = data.monthProgress.percentage + '%';
+            document.getElementById('hourly-month-progress-bar').style.width = Math.min(100, data.monthProgress.percentage) + '%';
+            document.getElementById('hourly-month-actual').textContent = formatEUR(data.monthProgress.actual);
+            document.getElementById('hourly-month-target').textContent = formatEUR(data.monthProgress.target);
+
+            // Popola Warning
+            warningsList.innerHTML = '';
+            if (!data.warnings || data.warnings.length === 0) {
+                warningsList.innerHTML = '<div class="no-warnings">No alerts detected. Phases are working inline with cycle times.</div>';
+            } else {
+                data.warnings.forEach(w => {
+                    const item = document.createElement('div');
+                    item.className = `warning-item severity-${w.severity}`;
+                    item.innerHTML = `
+                        <div class="warning-title">${w.title}</div>
+                        <div class="warning-message">${w.message}</div>
+                        <div class="warning-detail">${w.detail}</div>
+                    `;
+                    warningsList.appendChild(item);
+                });
+            }
+
+            renderHourlyChart(data);
+
+        } catch (e) {
+            console.error('Error loading hourly production data:', e);
+            warningsList.innerHTML = `<div class="no-warnings" style="color: #ff5252;">Error: ${e.message}</div>`;
+        }
+    }
+
+    function renderHourlyChart(data) {
+        const ctx = document.getElementById('chart-production-hourly').getContext('2d');
+        const baseFont = rootFontPx();
+        const tickFont = Math.round(baseFont * 0.8);
+        const titleFont = Math.round(baseFont * 0.85);
+        const tooltipBody = Math.round(baseFont * 0.85);
+
+        const chartData = {
+            labels: data.labels,
+            datasets: [
+                {
+                    label: 'Value Produced (Hour)',
+                    type: 'bar',
+                    data: data.chartData.hourlyActual,
+                    backgroundColor: '#ffb74d',
+                    borderColor: '#ffb74d',
+                    borderWidth: 1,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Progressive Budget',
+                    type: 'line',
+                    data: data.chartData.budget,
+                    borderColor: '#4fc3f7',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    yAxisID: 'y1'
+                },
+                {
+                    label: 'Real Progress',
+                    type: 'line',
+                    data: data.chartData.actual,
+                    borderColor: '#81c784',
+                    backgroundColor: 'rgba(129,199,132,0.1)',
+                    borderWidth: 3,
+                    fill: false,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#81c784',
+                    yAxisID: 'y1'
+                }
+            ]
+        };
+
+        if (hourlyChartInstance) {
+            hourlyChartInstance.data.labels = data.labels;
+            hourlyChartInstance.data.datasets[0].data = data.chartData.hourlyActual;
+            hourlyChartInstance.data.datasets[1].data = data.chartData.budget;
+            hourlyChartInstance.data.datasets[2].data = data.chartData.actual;
+            hourlyChartInstance.update('none');
+        } else {
+            hourlyChartInstance = new Chart(ctx, {
+                data: chartData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(20,32,46,0.95)',
+                            titleColor: '#f2f6fb',
+                            bodyColor: '#e8ecf2',
+                            borderColor: '#4fc3f7',
+                            borderWidth: 1,
+                            padding: Math.round(baseFont * 0.75),
+                            titleFont: { size: tooltipBody + 1, weight: '600' },
+                            bodyFont: { size: tooltipBody },
+                            callbacks: {
+                                label: (c) => {
+                                    return c.dataset.label + ': ' + formatEUR(c.parsed.y);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#8fa3bf', font: { size: tickFont } },
+                            grid: { color: 'rgba(255,255,255,0.04)' }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            ticks: {
+                                color: '#8fa3bf',
+                                font: { size: 12 },
+                                callback: (v) => formatEUR(v)
+                            },
+                            grid: { color: 'rgba(255,255,255,0.04)' },
+                            title: {
+                                display: true,
+                                text: 'Hourly Production (€)',
+                                color: '#8fa3bf',
+                                font: { size: titleFont, weight: '600' }
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            ticks: {
+                                color: '#8fa3bf',
+                                font: { size: 12 },
+                                callback: (v) => formatEUR(v)
+                            },
+                            grid: { drawOnChartArea: false },
+                            title: {
+                                display: true,
+                                text: 'Progressive (€)',
                                 color: '#8fa3bf',
                                 font: { size: titleFont, weight: '600' }
                             }
@@ -617,58 +787,100 @@
 
     // Toggle view logic
     function toggleView(forceView) {
-        const nextView = forceView || (currentView === 'production' ? 'wip' : 'production');
+        let nextView;
+        if (forceView) {
+            nextView = forceView;
+        } else {
+            if (currentView === 'production') nextView = 'wip';
+            else if (currentView === 'wip') nextView = 'hourly';
+            else nextView = 'production';
+        }
+        
         if (nextView === currentView) return;
 
         currentView = nextView;
-        secondsSinceRotation = 0; // resetta contatore rotazione
+        secondsSinceRotation = 0; // reset rotation counter
 
-        const btn = document.getElementById('toggle-view-btn');
+        const navProduction = document.getElementById('btn-nav-production');
+        const navWip = document.getElementById('btn-nav-wip');
+        const navHourly = document.getElementById('btn-nav-hourly');
         const prodKpis = document.getElementById('kpis-production');
         const wipKpis = document.getElementById('kpis-wip');
+        const hourlyKpis = document.getElementById('kpis-hourly');
         const prodPanel = document.getElementById('panel-production');
         const wipPanel = document.getElementById('panel-wip');
+        const hourlyPanel = document.getElementById('panel-hourly');
         const exportBtn = document.getElementById('export-btn');
         const exportWipBtn = document.getElementById('export-wip-btn');
 
+        // Reset active classes on tabs
+        navProduction.classList.remove('active');
+        navWip.classList.remove('active');
+        navHourly.classList.remove('active');
+
+        // Hide all panels and KPI groups
+        prodKpis.classList.add('hidden');
+        wipKpis.classList.add('hidden');
+        hourlyKpis.classList.add('hidden');
+        prodPanel.classList.add('hidden');
+        wipPanel.classList.add('hidden');
+        hourlyPanel.classList.add('hidden');
+        exportBtn.classList.add('hidden');
+        exportWipBtn.classList.add('hidden');
+
         if (currentView === 'production') {
-            btn.textContent = 'Vai a WIP';
-            wipKpis.classList.add('hidden');
+            navProduction.classList.add('active');
             prodKpis.classList.remove('hidden');
-            wipPanel.classList.add('hidden');
             prodPanel.classList.remove('hidden');
-            exportWipBtn.classList.add('hidden');
             exportBtn.classList.remove('hidden');
 
             if (chartInstance) {
                 chartInstance.resize();
                 chartInstance.update();
             }
-        } else {
-            btn.textContent = 'Vai a Produzione';
-            prodKpis.classList.add('hidden');
+        } else if (currentView === 'wip') {
+            navWip.classList.add('active');
             wipKpis.classList.remove('hidden');
-            prodPanel.classList.add('hidden');
             wipPanel.classList.remove('hidden');
-            exportBtn.classList.add('hidden');
             exportWipBtn.classList.remove('hidden');
 
             loadWipMetrics();
+        } else if (currentView === 'hourly') {
+            navHourly.classList.add('active');
+            hourlyPanel.classList.remove('hidden');
+            hourlyKpis.classList.remove('hidden');
+
+            loadHourlyMetrics();
         }
     }
 
     function updatePauseButton() {
         const pauseBtn = document.getElementById('pause-rotation-btn');
-        if (!pauseBtn) return;
+        const pauseHourlyBtn = document.getElementById('btn-pause-rotation-hourly');
         
         if (rotationPaused) {
-            pauseBtn.className = 'btn-rotate-paused';
             const mins = Math.floor(pauseSecondsRemaining / 60);
             const secs = pauseSecondsRemaining % 60;
-            pauseBtn.textContent = `Auto-swap: Pausa (${pad(mins)}:${pad(secs)})`;
+            const text = `Auto-swap: Paused (${pad(mins)}:${pad(secs)})`;
+            
+            if (pauseBtn) {
+                pauseBtn.className = 'btn-rotate-paused';
+                pauseBtn.textContent = text;
+            }
+            if (pauseHourlyBtn) {
+                pauseHourlyBtn.className = 'page-action-btn btn-rotate-paused';
+                pauseHourlyBtn.textContent = text;
+            }
         } else {
-            pauseBtn.className = 'btn-rotate-active';
-            pauseBtn.textContent = 'Auto-swap: Attivo';
+            const text = 'Auto-swap: Active';
+            if (pauseBtn) {
+                pauseBtn.className = 'btn-rotate-active';
+                pauseBtn.textContent = text;
+            }
+            if (pauseHourlyBtn) {
+                pauseHourlyBtn.className = 'page-action-btn btn-rotate-active';
+                pauseHourlyBtn.textContent = text;
+            }
         }
     }
 
@@ -691,10 +903,35 @@
         pauseBtn.addEventListener('click', togglePauseRotation);
     }
 
-    // Wiring up view toggling
-    document.getElementById('toggle-view-btn').addEventListener('click', () => {
-        toggleView();
+    const pauseHourlyBtn = document.getElementById('btn-pause-rotation-hourly');
+    if (pauseHourlyBtn) {
+        pauseHourlyBtn.addEventListener('click', togglePauseRotation);
+    }
+
+    // Wiring up view toggling via navigation buttons
+    document.getElementById('btn-nav-production').addEventListener('click', () => {
+        toggleView('production');
     });
+    document.getElementById('btn-nav-wip').addEventListener('click', () => {
+        toggleView('wip');
+    });
+    document.getElementById('btn-nav-hourly').addEventListener('click', () => {
+        toggleView('hourly');
+    });
+
+    // In-panel navigation buttons to go to hourly monitoring page
+    const goToHourlyFromProd = document.getElementById('btn-go-to-hourly-from-prod');
+    if (goToHourlyFromProd) {
+        goToHourlyFromProd.addEventListener('click', () => {
+            toggleView('hourly');
+        });
+    }
+    const goToHourlyFromWip = document.getElementById('btn-go-to-hourly-from-wip');
+    if (goToHourlyFromWip) {
+        goToHourlyFromWip.addEventListener('click', () => {
+            toggleView('hourly');
+        });
+    }
 
     // Refresh action
     document.getElementById('refresh-btn').addEventListener('click', () => {
@@ -804,10 +1041,17 @@
                 wipDailyChartInstance.destroy();
                 wipDailyChartInstance = null;
             }
+            if (hourlyChartInstance) {
+                hourlyChartInstance.destroy();
+                hourlyChartInstance = null;
+            }
             loadMetrics();
             if (currentView === 'wip') {
                 loadWipMetrics();
+            } else if (currentView === 'hourly') {
+                loadHourlyMetrics();
             }
         }, 250);
     });
 })();
+

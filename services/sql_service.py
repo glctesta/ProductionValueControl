@@ -456,3 +456,79 @@ class SqlService:
         except Exception as e:
             logger.error(f"Errore recupero destinatari per '{attribute}' tramite utils: {e}")
             return []
+
+    def get_hourly_production(
+        self, start_dt: datetime, end_dt: datetime
+    ) -> List[Tuple[datetime, str, str, int, str, int]]:
+        """
+        Ritorna la lista delle scansioni di oggi raggruppate per ora, ordine, prodotto e fase:
+        (ScanHour, OrderNumber, ProductCode, IDPhase, PhaseName, Qty)
+        """
+        query = """
+        SELECT
+            DATEADD(hour, DATEDIFF(hour, 0, Scannings.ScanTimeStart), 0) AS ScanHour,
+            Orders.OrderNumber,
+            Products.ProductCode,
+            OrderPhases.IDPhase,
+            Phases.PhaseName,
+            SUM(CASE WHEN Scannings.IsPass = 1 THEN 1 ELSE 0 END) AS Qty
+        FROM Traceability_rs.dbo.Scannings
+        INNER JOIN Traceability_rs.dbo.OrderPhases
+            ON Scannings.IDOrderPhase = OrderPhases.IDOrderPhase
+        INNER JOIN Traceability_rs.dbo.Orders
+            ON OrderPhases.IDOrder = Orders.IDOrder
+        INNER JOIN Traceability_rs.dbo.Products
+            ON Orders.IDProduct = Products.IDProduct
+        INNER JOIN Traceability_rs.dbo.Phases
+            ON OrderPhases.IDPhase = Phases.IDPhase
+        WHERE Scannings.ScanTimeStart >= ?
+            AND Scannings.ScanTimeStart < ?
+        GROUP BY
+            DATEADD(hour, DATEDIFF(hour, 0, Scannings.ScanTimeStart), 0),
+            Orders.OrderNumber,
+            Products.ProductCode,
+            OrderPhases.IDPhase,
+            Phases.PhaseName
+        HAVING SUM(CASE WHEN Scannings.IsPass = 1 THEN 1 ELSE 0 END) > 0
+        """
+        conn = self.db.connect()
+        with conn.cursor() as cursor:
+            cursor.execute(query, start_dt, end_dt)
+            rows = cursor.fetchall()
+            
+        result = []
+        for r in rows:
+            scan_hour = r[0]
+            order = str(r[1]).strip() if r[1] is not None else ""
+            p_code = str(r[2]).strip() if r[2] is not None else ""
+            phase_id = int(r[3]) if r[3] is not None else 0
+            phase_name = str(r[4]).strip() if r[4] is not None else ""
+            qty = int(r[5]) if r[5] is not None else 0
+            result.append((scan_hour, order, p_code, phase_id, phase_name, qty))
+        return result
+
+    def get_cycle_times(self) -> Dict[Tuple[str, str], float]:
+        """
+        Ritorna un dizionario {(ProductCode, PhaseName): CycleTimeMinutes}
+        dalla tabella PianoTempi_Cycles.
+        """
+        query = """
+        SELECT ProductCode, PhaseName, CycleTimeMinutes
+        FROM traceability_rs.dbo.PianoTempi_Cycles
+        """
+        result = {}
+        try:
+            conn = self.db.connect()
+            with conn.cursor() as cursor:
+                cursor.execute(query)
+                rows = cursor.fetchall()
+            for r in rows:
+                p_code = str(r[0]).strip() if r[0] is not None else ""
+                phase_name = str(r[1]).strip() if r[1] is not None else ""
+                cycle = float(r[2]) if r[2] is not None else 0.0
+                if p_code and phase_name:
+                    result[(p_code, phase_name)] = cycle
+        except Exception as e:
+            logger.error(f"Errore lettura PianoTempi_Cycles: {e}")
+        return result
+

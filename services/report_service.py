@@ -226,3 +226,58 @@ class ReportService:
         )
         for text in leg.get_texts():
             text.set_color(TEXT)
+
+    def generate_wip_trend_chart(
+        self,
+        labels: list,
+        fatturato_vals: list,
+        wip_total_vals: list,
+        wip_good_vals: list,
+        wip_fail_vals: list
+    ) -> BytesIO:
+        """
+        Generates a YTD monthly trend chart showing completed production (fatturato),
+        WIP total, WIP Good, and WIP Fail.
+        """
+        fig, ax = plt.subplots(figsize=(10, 5.5), facecolor='#ffffff')
+        ax.set_facecolor('#f8f9fa')
+        
+        x = range(len(labels))
+        
+        # Plot the 4 lines
+        ax.plot(x, fatturato_vals, color='#1F4E78', linewidth=2.5, marker='o', label='Fatturato (Completed Value)')
+        ax.plot(x, wip_total_vals, color='#7F7F7F', linewidth=2.0, linestyle='--', marker='s', label='WIP Totale')
+        ax.plot(x, wip_good_vals, color='#2E8B57', linewidth=2.0, marker='^', label='WIP Good (OK)')
+        ax.plot(x, wip_fail_vals, color='#C00000', linewidth=2.0, marker='v', label='WIP Fail')
+        
+        # Grid and spines
+        ax.grid(True, color='#e2e8f0', linestyle='-', linewidth=0.5)
+        for spine in ('top', 'right'):
+            ax.spines[spine].set_visible(False)
+        for spine in ('bottom', 'left'):
+            ax.spines[spine].set_color('#cbd5e1')
+            
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, color='#475569', fontsize=10)
+        ax.tick_params(axis='y', colors='#475569', labelsize=10)
+        
+        # Format Y axis as EUR
+        ax.yaxis.set_major_formatter(
+            mtick.FuncFormatter(lambda v, _: _fmt_eur(v))
+        )
+        
+        # Labels and Title
+        ax.set_title('WIP & Completed Production Value Trend (YTD)', color='#1e293b', fontsize=13, fontweight='bold', pad=15)
+        ax.set_ylabel('Valore (€)', color='#475569', fontsize=10, labelpad=10)
+        
+        # Legend
+        ax.legend(loc='upper left', frameon=True, facecolor='#ffffff', edgecolor='#cbd5e1', fontsize=9)
+        
+        plt.tight_layout()
+        
+        buf = BytesIO()
+        fig.savefig(buf, format='png', dpi=120)
+        plt.close(fig)
+        buf.seek(0)
+        return buf
+

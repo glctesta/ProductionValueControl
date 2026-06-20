@@ -22,6 +22,8 @@ from services.metrics_service import MetricsService
 from services.report_service import ReportService
 from services.sql_service import SqlService
 from services.target_service import TargetService
+from services.analysis_service import AnalysisService
+
 
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / 'config.json'
@@ -65,6 +67,8 @@ metrics_svc = MetricsService(excel_svc, sql_svc, cal_svc, target_service=target_
 export_svc = ExportService(excel_svc, sql_svc, metrics_svc)
 email_svc = EmailService(BASE_DIR)
 report_svc = ReportService()
+analysis_svc = AnalysisService(completion_phase_id=config.get('phaseId', 142))
+
 
 # Stato di notifica degli ordini mancanti: si invia una nuova email SOLO se
 # rispetto alla precedente spedizione compaiono ordini NUOVI. Il set si resetta
@@ -525,6 +529,64 @@ def run_wip_daily_report() -> bool:
         xlsx_bytes = xlsx_buf.getvalue()
         xlsx_filename = f"WIP_Report_{prod_day.strftime('%Y%m%d')}.xlsx"
 
+        # Carica/computa cache WIP per il grafico di tendenza YTD
+        global WIP_CACHE_DATA
+        if WIP_CACHE_DATA is None:
+            logger.info("Cache WIP vuota nel job daily report, calcolo sincrono...")
+            WIP_CACHE_DATA = compute_entire_wip_data()
+        
+        chart_monthly = WIP_CACHE_DATA['chartMonthly']
+        
+        # Calcola YTD Completed Value (Fatturato) per ciascun mese
+        month_names = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"]
+        monthly_fatturato = {}
+        
+        for m in range(1, prod_day.month):
+            m_name = month_names[m - 1]
+            m_start_dt = datetime(prod_day.year, m, 1, 7, 30, 0)
+            m_end_dt = datetime(prod_day.year, m + 1, 1, 7, 30, 0)
+            
+            m_completed_rows = sql_svc.get_ytd_completed_production(m_start_dt, m_end_dt)
+            m_orders = {r[0] for r in m_completed_rows}
+            m_details = sql_svc.get_orders_details_bulk(list(m_orders))
+            
+            m_price_cache = {}
+            for order in m_orders:
+                price = get_price(order)
+                if price > 0:
+                    m_price_cache[order] = price
+                    
+            m_val = 0.0
+            for order, qty in m_completed_rows:
+                price = m_price_cache.get(order)
+                if price is None:
+                    p_code = m_details.get(order, {}).get('productCode')
+                    if p_code in product_to_price:
+                        price = product_to_price[p_code]
+                    else:
+                        price = 0.0
+                m_val += qty * price
+            monthly_fatturato[m_name] = m_val
+            
+        current_month_name = month_names[prod_day.month - 1]
+        monthly_fatturato[current_month_name] = metrics.get('monthValue', 0.0)
+        
+        # Genera il grafico di tendenza del WIP & Fatturato (YTD)
+        labels = chart_monthly['labels']
+        wip_good_vals = chart_monthly['valOk']
+        wip_fail_vals = chart_monthly['valFail']
+        wip_total_vals = [ok + fail for ok, fail in zip(wip_good_vals, wip_fail_vals)]
+        fatturato_vals = [monthly_fatturato.get(m, 0.0) for m in labels]
+        
+        try:
+            wip_trend_buf = report_svc.generate_wip_trend_chart(
+                labels, fatturato_vals, wip_total_vals, wip_good_vals, wip_fail_vals
+            )
+            wip_trend_bytes = wip_trend_buf.getvalue()
+        except Exception as e:
+            logger.exception(f"Daily WIP report: errore generazione grafico trend: {e}")
+            wip_trend_bytes = b''
+
         html_body = f"""
         <html>
         <body style="font-family: Arial, sans-serif; color: #333; max-width: 800px; margin: 0 auto; line-height: 1.5;">
@@ -577,12 +639,18 @@ def run_wip_daily_report() -> bool:
             </table>
 
             <h3 style="color: #2E75B6; margin-top: 24px;">3. Year-To-Date (YTD) Production</h3>
-            <table style="border-collapse: collapse; width: 100%; font-size: 14px; margin-bottom: 24px;">
+            <table style="border-collapse: collapse; width: 100%; font-size: 14px; margin-bottom: 16px;">
                 <tr style="border-bottom: 1px solid #ddd;">
                     <td style="padding: 8px; font-weight: bold; width: 250px;">YTD Completed Value:</td>
                     <td style="padding: 8px; font-size: 15px; font-weight: bold; color: #1F4E78;">{_fmt_eur(ytd_total_value)}</td>
                 </tr>
             </table>
+
+            <h3 style="color: #2E75B6; margin-top: 24px;">4. WIP & Production Trend (YTD)</h3>
+            <div style="text-align: center; margin-bottom: 24px;">
+                <img src="cid:wip_trend_chart" alt="WIP & Production Trend"
+                     style="max-width: 100%; border: 1px solid #cbd5e1; border-radius: 6px;"/>
+            </div>
 
             <p style="font-size: 13px; color: #555;">
                 * The detailed multi-sheet Excel workbook is attached to this email. It contains a "Sintesi WIP" tab and individual sheets for each of the {wip_orders_count} active WIP orders with board-level tracking.
@@ -603,11 +671,13 @@ def run_wip_daily_report() -> bool:
             xlsx_bytes,
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )]
+        inline_images = {'wip_trend_chart': wip_trend_bytes} if wip_trend_bytes else None
 
         ok = email_svc.send(
             recipients=recipients,
             subject=subject,
             html_body=html_body,
+            inline_images=inline_images,
             attachments=attachments
         )
         if ok:
@@ -1068,6 +1138,70 @@ def api_wip():
     except Exception as e:
         logger.exception("Errore nel recupero dati WIP")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/hourly-production')
+def api_hourly_production():
+    try:
+        now = datetime.now()
+        prod_day = MetricsService.current_production_date(now)
+        
+        # start of today's production day (07:30)
+        h_start, m_start = config.get('productionDayStart', '07:30').split(':')
+        prod_start_dt = datetime(prod_day.year, prod_day.month, prod_day.day, int(h_start), int(m_start), 0)
+        prod_end_dt = prod_start_dt + timedelta(days=1)
+        
+        # Get hourly production scans
+        hourly_rows = sql_svc.get_hourly_production(prod_start_dt, prod_end_dt)
+        
+        # Get cycle times
+        cycle_times = sql_svc.get_cycle_times()
+        
+        # Get price map
+        price_map = excel_svc.load_price_map()
+        
+        # Pre-resolve prices for resetservices fallback
+        unique_orders = {r[1] for r in hourly_rows}
+        sql_price_cache = {}
+        for order in unique_orders:
+            if order not in price_map:
+                fb = sql_svc.get_price_from_resetservices(order)
+                sql_price_cache[order] = fb if fb is not None else 0.0
+                
+        # Merge prices
+        combined_price_map = {o: price_map[o] for o in price_map}
+        combined_price_map.update(sql_price_cache)
+        
+        # Get daily target from target_svc
+        daily_target = target_svc.get_target_for_day(prod_day)
+        
+        # Run analysis
+        analysis_result = analysis_svc.analyze_hourly_production(
+            hourly_rows=hourly_rows,
+            cycle_times=cycle_times,
+            price_map=combined_price_map,
+            daily_target=daily_target,
+            production_start_hour=prod_start_dt
+        )
+        
+        # Add monthly progress information
+        metrics = metrics_svc.compute(now)
+        monthly_target = round(metrics.get("monthlyTarget", 0.0), 2)
+        month_value = round(metrics.get("monthValue", 0.0), 2)
+        
+        analysis_result["monthProgress"] = {
+            "actual": month_value,
+            "target": monthly_target,
+            "percentage": round((month_value / monthly_target) * 100, 1) if monthly_target > 0 else 0
+        }
+        
+        return jsonify(analysis_result)
+    except Exception as e:
+        logger.exception("Errore nel recupero dell'andamento orario")
+        return jsonify({'error': str(e)}), 500
+
+
+
 
 
 @app.route('/api/export/wip-excel')

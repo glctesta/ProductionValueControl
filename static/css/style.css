@@ -176,12 +176,12 @@ html, body {
     width: 100%;
 }
 
-#refresh-btn, #export-btn, #export-wip-btn, #toggle-view-btn, #pause-rotation-btn, #admin-targets-link {
-    padding: 4px 8px;
+#refresh-btn, #export-btn, #export-wip-btn, #pause-rotation-btn, #admin-targets-link, .nav-btn {
+    padding: 3px 6px;
     border: none;
     border-radius: 6px;
     font-weight: 700;
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     cursor: pointer;
     transition: transform 0.1s, box-shadow 0.2s, opacity 0.2s;
     letter-spacing: 0.02em;
@@ -202,13 +202,21 @@ html, body {
     box-shadow: 0 2px 10px rgba(255,112,67,0.5);
     transform: translateY(-1px);
 }
-#toggle-view-btn {
+.nav-btn {
+    background: rgba(255, 255, 255, 0.05);
+    color: #8fa3bf;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+.nav-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    transform: translateY(-1px);
+}
+.nav-btn.active {
     background: linear-gradient(135deg, #ab47bc, #7b1fa2);
     color: #ffffff;
-}
-#toggle-view-btn:hover {
-    box-shadow: 0 2px 10px rgba(171,71,188,0.5);
-    transform: translateY(-1px);
+    border: 1px solid rgba(171, 71, 188, 0.4) !important;
+    box-shadow: 0 2px 10px rgba(171, 71, 188, 0.4);
 }
 #refresh-btn {
     background: linear-gradient(135deg, #4fc3f7, #29b6f6);
@@ -506,3 +514,239 @@ html, body {
     min-height: 0;
     position: relative;
 }
+
+#kpis-hourly {
+    display: grid;
+    grid-template-columns: 1.2fr 1.8fr;
+    gap: 0.6rem;
+    width: 100%;
+}
+
+#kpis-hourly .hourly-card {
+    background: rgba(255, 255, 255, 0.025);
+    border: none;
+    border-left: 3px solid #4fc3f7;
+    border-radius: 8px;
+    padding: 6px 12px;
+    box-shadow: none;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+#kpis-hourly .progress-card {
+    border-left-color: #4fc3f7;
+}
+
+#kpis-hourly .warnings-card {
+    border-left-color: #ffb74d;
+    max-height: 75px;
+    overflow-y: auto;
+}
+
+#kpis-hourly .hourly-card h3 {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #8fa3bf;
+    margin-bottom: 4px;
+    font-weight: 600;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+/* Progress bar styles */
+.progress-container {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.progress-bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    color: #8fa3bf;
+    font-weight: 600;
+}
+
+.progress-bar-bg {
+    height: 10px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 5px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.03);
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4fc3f7, #81c784);
+    border-radius: 5px;
+    transition: width 0.5s ease-out;
+}
+
+.progress-bar-values {
+    font-size: 0.75rem;
+    text-align: right;
+    color: #e8ecf2;
+    margin-top: 1px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Warnings list styles */
+#hourly-warnings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.warning-item {
+    display: flex;
+    flex-direction: column;
+    padding: 6px 10px;
+    border-left: 3px solid #ff5252;
+    background: rgba(255,82,82,0.04);
+    border-radius: 0 5px 5px 0;
+    font-size: 0.78rem;
+    line-height: 1.25;
+}
+
+.warning-item.severity-high {
+    border-left-color: #ff5252;
+    background: rgba(255,82,82,0.05);
+}
+
+.warning-item.severity-medium {
+    border-left-color: #ffb74d;
+    background: rgba(255,183,77,0.04);
+}
+
+.warning-item.severity-info {
+    border-left-color: #4fc3f7;
+    background: rgba(79,195,247,0.04);
+}
+
+.warning-title {
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 2px;
+}
+
+.warning-message {
+    color: #e8ecf2;
+    margin-bottom: 1px;
+}
+
+.warning-detail {
+    color: #8fa3bf;
+    font-size: 0.72rem;
+    font-style: italic;
+}
+
+.no-warnings {
+    font-size: 0.78rem;
+    color: #8fa3bf;
+    text-align: center;
+    padding: 15px;
+    font-style: italic;
+}
+
+#hourly-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* Chart styles */
+#hourly-chart-wrapper {
+    flex: 1;
+    background: linear-gradient(180deg, rgba(20,32,46,0.95), rgba(14,22,33,0.95));
+    border: 1px solid #253247;
+    border-radius: 14px;
+    padding: 12px 18px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.35);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.hourly-chart-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.hourly-chart-container h3 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #8fa3bf;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+
+.chart-canvas-wrapper {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}
+
+#legend-hourly {
+    display: flex;
+    gap: 20px;
+    padding: 10px 20px;
+    background: rgba(20,32,46,0.85);
+    border: 1px solid #253247;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    color: #a8b8ce;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* Page Action Button styles for in-panel navigation and controls */
+.page-action-btn {
+    padding: 4px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.7rem;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.05);
+    color: #e8ecf2;
+    transition: all 0.2s ease;
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.page-action-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: translateY(-1px);
+}
+.page-action-btn:active {
+    transform: translateY(0);
+}
+.page-action-btn.btn-rotate-active {
+    background: linear-gradient(135deg, #26a69a, #00897b);
+    color: #ffffff;
+    border-color: transparent;
+}
+.page-action-btn.btn-rotate-active:hover {
+    box-shadow: 0 2px 10px rgba(38,166,154,0.5);
+}
+.page-action-btn.btn-rotate-paused {
+    background: linear-gradient(135deg, #ff7043, #e64a19);
+    color: #ffffff;
+    border-color: transparent;
+}
+.page-action-btn.btn-rotate-paused:hover {
+    box-shadow: 0 2px 10px rgba(255,112,67,0.5);
+}
+
+
